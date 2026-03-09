@@ -4,11 +4,21 @@ import { Link } from "react-router-dom";
 import { PlusCircle, Edit, Trash2, X, Save } from "lucide-react";
 import { useArticles, Article, categories } from "@/data/articles";
 import { useQueryClient } from "@tanstack/react-query";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
 
-const ADMIN_PASSWORD = "wt-20260308";
+const quillModules = {
+    toolbar: [
+        [{ header: [1, 2, 3, 4, 5, 6, false] }],
+        ["bold", "italic", "underline", "strike"],
+        [{ list: "ordered" }, { list: "bullet" }],
+        ["link", "image", "code-block"],
+        ["clean"],
+    ],
+};
 
 const Admin = () => {
-    const [isAuthenticated, setIsAuthenticated] = useState(() => localStorage.getItem("adminAuth") === "true");
+    const [isAuthenticated, setIsAuthenticated] = useState(() => !!localStorage.getItem("adminToken"));
     const [passwordInput, setPasswordInput] = useState("");
     const [loginError, setLoginError] = useState("");
 
@@ -19,13 +29,18 @@ const Admin = () => {
     const [editingPost, setEditingPost] = useState<Article | null>(null);
     const [formData, setFormData] = useState<Partial<Article>>({});
     const [isLoading, setIsLoading] = useState(false);
+    const [imageFile, setImageFile] = useState<File | null>(null);
+    const [imagePreview, setImagePreview] = useState<string | null>(null);
 
     const openModal = (post?: Article) => {
         if (post) {
             setEditingPost(post);
             setFormData({ ...post });
+            setImagePreview(post.image || null);
+            setImageFile(null);
         } else {
             setEditingPost(null);
+            setImagePreview(null);
             setFormData({
                 id: Date.now().toString(),
                 title: "",
@@ -36,7 +51,10 @@ const Admin = () => {
                 date: new Date().toISOString().split("T")[0],
                 category: categories[0],
                 image: "https://images.unsplash.com/photo-1498050108023-c5249f4df085?w=800&h=450&fit=crop",
-                readTime: "5 min read"
+                readTime: "5 min read",
+                status: "published",
+                metaTitle: "",
+                metaDescription: ""
             });
         }
         setIsModalOpen(true);
@@ -45,12 +63,23 @@ const Admin = () => {
     const closeModal = () => {
         setIsModalOpen(false);
         setEditingPost(null);
+        setImageFile(null);
+        setImagePreview(null);
     };
 
     const handleDelete = async (id: string) => {
         if (window.confirm("Are you sure you want to delete this post?")) {
-            await fetch(`http://localhost:3000/api/posts/${id}`, { method: 'DELETE' });
-            queryClient.invalidateQueries({ queryKey: ['articles'] });
+            try {
+                const res = await fetch(`/api/posts/${id}`, {
+                    method: 'DELETE',
+                    headers: { 'Authorization': `Bearer ${localStorage.getItem('adminToken')}` }
+                });
+                if (!res.ok) throw new Error("Failed to delete post");
+                queryClient.invalidateQueries({ queryKey: ['articles'] });
+            } catch (error) {
+                console.error(error);
+                alert("Error deleting post");
+            }
         }
     };
 
@@ -63,23 +92,50 @@ const Admin = () => {
             processedData.slug = processedData.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
         }
 
-        if (editingPost) {
-            await fetch(`http://localhost:3000/api/posts/${editingPost.id}`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(processedData)
-            });
-        } else {
-            await fetch(`http://localhost:3000/api/posts`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(processedData)
-            });
+        if (!processedData.content || processedData.content === '<p><br></p>') {
+            alert("Content is required");
+            setIsLoading(false);
+            return;
         }
 
-        queryClient.invalidateQueries({ queryKey: ['articles'] });
-        setIsLoading(false);
-        closeModal();
+        try {
+            const payload = new FormData();
+            Object.entries(processedData).forEach(([key, value]) => {
+                if (value !== undefined) payload.append(key, String(value));
+            });
+            if (imageFile) {
+                payload.append('image', imageFile);
+            }
+
+            let res;
+            if (editingPost) {
+                res = await fetch(`/api/posts/${editingPost.id}`, {
+                    method: 'PUT',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    },
+                    body: payload
+                });
+            } else {
+                res = await fetch(`/api/posts`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${localStorage.getItem('adminToken')}`
+                    },
+                    body: payload
+                });
+            }
+
+            if (!res.ok) throw new Error("Failed to save post");
+
+            queryClient.invalidateQueries({ queryKey: ['articles'] });
+            closeModal();
+        } catch (error) {
+            console.error(error);
+            alert("Error saving post");
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
@@ -87,20 +143,38 @@ const Admin = () => {
         setFormData(prev => ({ ...prev, [name]: value }));
     };
 
-    const handleLogin = (e: React.FormEvent) => {
+    const handleImageChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const file = e.target.files?.[0];
+        if (file) {
+            setImageFile(file);
+            setImagePreview(URL.createObjectURL(file));
+        }
+    };
+
+    const handleLogin = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (passwordInput === ADMIN_PASSWORD) {
-            localStorage.setItem("adminAuth", "true");
-            setIsAuthenticated(true);
-            setLoginError("");
-            setPasswordInput("");
-        } else {
-            setLoginError("Incorrect password");
+        try {
+            const res = await fetch("/api/login", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ username: "admin", password: passwordInput })
+            });
+            if (res.ok) {
+                const data = await res.json();
+                localStorage.setItem("adminToken", data.token);
+                setIsAuthenticated(true);
+                setLoginError("");
+                setPasswordInput("");
+            } else {
+                setLoginError("Invalid credentials");
+            }
+        } catch {
+            setLoginError("Login failed");
         }
     };
 
     const handleLogout = () => {
-        localStorage.removeItem("adminAuth");
+        localStorage.removeItem("adminToken");
         setIsAuthenticated(false);
     };
 
@@ -177,6 +251,7 @@ const Admin = () => {
                                         <th className="p-4 font-medium">Title</th>
                                         <th className="p-4 font-medium hidden md:table-cell">Category</th>
                                         <th className="p-4 font-medium hidden sm:table-cell">Date</th>
+                                        <th className="p-4 font-medium hidden sm:table-cell">Status</th>
                                         <th className="p-4 font-medium text-right">Actions</th>
                                     </tr>
                                 </thead>
@@ -194,6 +269,11 @@ const Admin = () => {
                                             </td>
                                             <td className="p-4 hidden sm:table-cell text-sm text-muted-foreground">
                                                 {new Date(article.date).toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" })}
+                                            </td>
+                                            <td className="p-4 hidden sm:table-cell text-sm">
+                                                <span className={`px-2 py-1 rounded-full text-xs font-medium ${article.status === 'draft' ? 'bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-200' : 'bg-emerald-100 text-emerald-800 dark:bg-emerald-900 dark:text-emerald-200'}`}>
+                                                    {article.status === 'draft' ? "Draft" : "Published"}
+                                                </span>
                                             </td>
                                             <td className="p-4 text-right">
                                                 <div className="flex items-center justify-end gap-2">
@@ -249,6 +329,16 @@ const Admin = () => {
                                     />
                                 </div>
                                 <div className="space-y-2">
+                                    <label className="text-sm font-medium">Meta Title (SEO)</label>
+                                    <input
+                                        name="metaTitle"
+                                        value={formData.metaTitle || ""}
+                                        onChange={handleChange}
+                                        placeholder="Defaults to Title if empty"
+                                        className="w-full px-3 py-2 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-accent"
+                                    />
+                                </div>
+                                <div className="space-y-2">
                                     <label className="text-sm font-medium">Slug (URL)</label>
                                     <input
                                         name="slug"
@@ -258,7 +348,19 @@ const Admin = () => {
                                         className="w-full px-3 py-2 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-accent"
                                     />
                                 </div>
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    <div className="space-y-2">
+                                        <label className="text-sm font-medium">Status</label>
+                                        <select
+                                            name="status"
+                                            value={formData.status || "published"}
+                                            onChange={handleChange}
+                                            className="w-full px-3 py-2 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-accent"
+                                        >
+                                            <option value="draft">Draft</option>
+                                            <option value="published">Published</option>
+                                        </select>
+                                    </div>
                                     <div className="space-y-2">
                                         <label className="text-sm font-medium">Category</label>
                                         <select
@@ -285,7 +387,7 @@ const Admin = () => {
                                     </div>
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium">Excerpt (Meta Description)</label>
+                                    <label className="text-sm font-medium">Excerpt</label>
                                     <textarea
                                         name="excerpt"
                                         value={formData.excerpt || ""}
@@ -296,15 +398,41 @@ const Admin = () => {
                                     />
                                 </div>
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium">Content (HTML allowed)</label>
+                                    <label className="text-sm font-medium">Meta Description (SEO)</label>
                                     <textarea
-                                        name="content"
-                                        value={formData.content || ""}
+                                        name="metaDescription"
+                                        value={formData.metaDescription || ""}
                                         onChange={handleChange}
-                                        required
-                                        rows={6}
-                                        className="w-full px-3 py-2 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-accent font-mono text-sm"
+                                        placeholder="Defaults to Excerpt if empty"
+                                        rows={2}
+                                        className="w-full px-3 py-2 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-accent resize-none"
                                     />
+                                </div>
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Featured Image</label>
+                                    <input
+                                        type="file"
+                                        accept="image/*"
+                                        onChange={handleImageChange}
+                                        className="w-full px-3 py-2 rounded-md border border-input bg-background focus:outline-none focus:ring-2 focus:ring-accent"
+                                    />
+                                    {imagePreview && (
+                                        <div className="mt-2 flex justify-center border border-border rounded-md overflow-hidden bg-muted/20 p-2">
+                                            <img src={imagePreview} alt="Preview" className="max-h-48 object-contain" />
+                                        </div>
+                                    )}
+                                </div>
+                                <div className="space-y-2 pb-12">
+                                    <label className="text-sm font-medium">Content</label>
+                                    <div className="bg-background rounded-md">
+                                        <ReactQuill
+                                            theme="snow"
+                                            value={formData.content || ""}
+                                            onChange={(val) => setFormData(prev => ({ ...prev, content: val }))}
+                                            modules={quillModules}
+                                            className="h-64"
+                                        />
+                                    </div>
                                 </div>
                             </form>
 

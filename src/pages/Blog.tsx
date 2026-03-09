@@ -2,7 +2,7 @@ import { useSearchParams } from "react-router-dom";
 import Layout from "@/components/Layout";
 import ArticleCard from "@/components/ArticleCard";
 import Sidebar from "@/components/Sidebar";
-import { useArticles, categories } from "@/data/articles";
+import { usePublishedArticles, categories } from "@/data/articles";
 import { Link } from "react-router-dom";
 
 const Blog = () => {
@@ -10,7 +10,7 @@ const Blog = () => {
   const categoryFilter = searchParams.get("category");
   const searchQuery = searchParams.get("search")?.toLowerCase();
 
-  const { data: articles = [] } = useArticles();
+  const { data: articles = [] } = usePublishedArticles();
 
   let filtered = articles;
   if (categoryFilter) {

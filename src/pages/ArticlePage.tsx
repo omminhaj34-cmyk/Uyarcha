@@ -3,6 +3,7 @@ import { Share2, Facebook, Twitter, Linkedin, Clock, User, Calendar } from "luci
 import Layout from "@/components/Layout";
 import Sidebar from "@/components/Sidebar";
 import { useArticleBySlug } from "@/data/articles";
+import { Helmet } from "react-helmet-async";
 
 const ArticlePage = () => {
   const { slug } = useParams<{ slug: string }>();
@@ -33,6 +34,10 @@ const ArticlePage = () => {
 
   return (
     <Layout>
+      <Helmet>
+        <title>{article.metaTitle || `${article.title} | Fast Lane Blog`}</title>
+        <meta name="description" content={article.metaDescription || article.excerpt} />
+      </Helmet>
       <article className="container py-8" itemScope itemType="https://schema.org/BlogPosting">
         {/* Breadcrumb */}
         <nav className="text-sm text-muted-foreground mb-6">
@@ -56,7 +61,7 @@ const ArticlePage = () => {
 
         {/* Featured Image */}
         <div className="rounded-xl overflow-hidden mb-8 max-w-4xl">
-          <img src={article.image} alt={article.title} className="w-full aspect-[2/1] object-cover" itemProp="image" />
+          <img src={article.image} alt={article.title} className="w-full aspect-[2/1] object-cover" itemProp="image" loading="lazy" />
         </div>
 
 
