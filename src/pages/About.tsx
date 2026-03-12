@@ -12,11 +12,11 @@ const About = () => {
             <span className="text-foreground font-medium">About</span>
           </nav>
 
-          <h1 className="font-display text-4xl md:text-5xl font-bold mb-8">About Trending News</h1>
+          <h1 className="font-display text-4xl md:text-5xl font-bold mb-8">About Uyarcha</h1>
 
 
           <p className="lead text-xl text-muted-foreground mb-8">
-            Welcome to <strong>Trending News</strong>, your premier destination for the latest tutorials, guides, and reviews in the ever-evolving world of technology. Our goal is to make complex tech topics accessible to everyone, from students embarking on their coding journey to seasoned developers looking to stay ahead of the curve.
+            Welcome to <strong>Uyarcha</strong>, your premier destination for the latest tutorials, guides, and reviews in the ever-evolving world of technology. Our goal is to make complex tech topics accessible to everyone, from students embarking on their coding journey to seasoned developers looking to stay ahead of the curve.
           </p>
 
           <h2 className="text-2xl md:text-3xl font-bold mt-12 mb-4">Our Mission</h2>
@@ -42,7 +42,7 @@ const About = () => {
 
           <h2 className="text-2xl md:text-3xl font-bold mt-12 mb-4">About the Author</h2>
           <p>
-            Hi, I'm the founder and chief editor of Trending News. With years of experience in software development and technical writing, I discovered a passion for breaking down complex tech topics. What started as personal notes quickly grew into a platform aimed at helping others overcome the typical roadblocks in tech education. When I'm not writing, I'm usually testing out the newest AI tools or experimenting with automation pipelines.
+            Hi, I'm the founder and chief editor of Uyarcha. With years of experience in software development and technical writing, I discovered a passion for breaking down complex tech topics. What started as personal notes quickly grew into a platform aimed at helping others overcome the typical roadblocks in tech education. When I'm not writing, I'm usually testing out the newest AI tools or experimenting with automation pipelines.
           </p>
 
           <p>

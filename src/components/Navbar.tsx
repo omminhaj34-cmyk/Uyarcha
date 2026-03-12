@@ -14,7 +14,7 @@ const Navbar = () => {
 
       <nav className="container flex items-center justify-between py-4">
         <Link to="/" className="font-display text-2xl font-bold tracking-tight text-foreground">
-          Trending <span className="text-accent">News</span>
+          Uyarcha
         </Link>
 
         {/* Desktop nav */}

@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import type { Article } from "@/data/articles";
+import { getImageUrl } from "@/lib/api";
 
 interface ArticleCardProps {
   article: Article;
@@ -13,7 +14,7 @@ const ArticleCard = ({ article, variant = "default" }: ArticleCardProps) => {
     return (
       <Link to={`/article/${article.slug}`} className="group block">
         <div className="relative overflow-hidden rounded-xl aspect-[16/9]">
-          <img src={article.image} alt={article.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+          <img src={getImageUrl(article.image) || '/placeholder.svg'} alt={article.title} onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
           <div className="absolute inset-0 bg-gradient-to-t from-primary/80 to-transparent" />
           <div className="absolute bottom-0 left-0 right-0 p-6">
             <span className="inline-block px-3 py-1 text-xs font-semibold rounded-full bg-accent text-accent-foreground mb-3">{article.category}</span>
@@ -34,7 +35,7 @@ const ArticleCard = ({ article, variant = "default" }: ArticleCardProps) => {
   if (variant === "compact") {
     return (
       <Link to={`/article/${article.slug}`} className="group flex gap-4 items-start">
-        <img src={article.image} alt={article.title} className="w-24 h-24 rounded-lg object-cover flex-shrink-0" loading="lazy" />
+        <img src={getImageUrl(article.image) || '/placeholder.svg'} alt={article.title} onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }} className="w-24 h-24 rounded-lg object-cover flex-shrink-0" loading="lazy" />
         <div>
           <span className="text-xs font-medium text-accent">{article.category}</span>
           <h3 className="font-display text-base font-semibold text-foreground group-hover:text-accent transition-colors leading-snug mt-1">{article.title}</h3>
@@ -47,7 +48,7 @@ const ArticleCard = ({ article, variant = "default" }: ArticleCardProps) => {
   return (
     <Link to={`/article/${article.slug}`} className="group block bg-card rounded-xl border border-border overflow-hidden hover:shadow-lg transition-shadow">
       <div className="aspect-[16/9] overflow-hidden">
-        <img src={article.image} alt={article.title} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
+        <img src={getImageUrl(article.image) || '/placeholder.svg'} alt={article.title} onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }} className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" loading="lazy" />
       </div>
       <div className="p-5">
         <span className="text-xs font-semibold text-accent">{article.category}</span>

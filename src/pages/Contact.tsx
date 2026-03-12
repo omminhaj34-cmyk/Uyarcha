@@ -39,7 +39,7 @@ const Contact = () => {
 
           <h1 className="font-display text-4xl md:text-5xl font-bold mb-6">Contact Us</h1>
           <p className="text-xl text-muted-foreground mb-12 max-w-2xl">
-            Do you have a question, inquiry, or suggestion regarding <Link to="/about" className="text-accent hover:underline">Trending News</Link>? Or perhaps you've built a new AI tool you'd like us to review? We would love to hear from you.
+            Do you have a question, inquiry, or suggestion regarding <Link to="/about" className="text-accent hover:underline">Uyarcha</Link>? Or perhaps you've built a new AI tool you'd like us to review? We would love to hear from you.
           </p>
 
           <div className="grid grid-cols-1 md:grid-cols-3 gap-12">
@@ -50,7 +50,7 @@ const Contact = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-lg mb-1">Email</h3>
-                  <p className="text-muted-foreground">hello@trendingnews.com</p>
+                  <p className="text-muted-foreground">hello@uyarcha.com</p>
                   <p className="text-sm text-muted-foreground mt-1">We typically respond within 1-2 business days.</p>
                 </div>
               </div>

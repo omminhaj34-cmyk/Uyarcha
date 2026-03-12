@@ -16,7 +16,7 @@ const PrivacyPolicy = () => {
 
 
           <p className="lead text-xl text-muted-foreground mb-8">
-            At <strong>Trending News</strong>, accessible from our website, one of our main priorities is the privacy of our visitors. This Privacy Policy document contains types of information that is collected and recorded by Trending News and how we use it.
+            At <strong>Uyarcha</strong>, accessible from our website, one of our main priorities is the privacy of our visitors. This Privacy Policy document contains types of information that is collected and recorded by Uyarcha and how we use it.
           </p>
 
           <p>
@@ -43,15 +43,15 @@ const PrivacyPolicy = () => {
             Our advertising partners may use cookies and web beacons on our site. Our advertising partners include Google AdSense.
           </p>
           <p>
-            These third-party ad servers or ad networks use technology in their respective advertisements and links that appear on Trending News and which are sent directly to your browser. They automatically receive your IP address when this occurs. Other technologies (such as cookies, JavaScript, or Web Beacons) may also be used by our site's third-party ad networks to measure the effectiveness of their advertising campaigns and/or to personalize the advertising content that you see on the site.
+            These third-party ad servers or ad networks use technology in their respective advertisements and links that appear on Uyarcha and which are sent directly to your browser. They automatically receive your IP address when this occurs. Other technologies (such as cookies, JavaScript, or Web Beacons) may also be used by our site's third-party ad networks to measure the effectiveness of their advertising campaigns and/or to personalize the advertising content that you see on the site.
           </p>
           <p>
-            Trending News has no access to or control over these cookies that are used by third-party advertisers.
+            Uyarcha has no access to or control over these cookies that are used by third-party advertisers.
           </p>
 
           <h2 className="text-2xl font-bold mt-10 mb-4">3. Third-Party Privacy Policies</h2>
           <p>
-            Trending News's Privacy Policy does not apply to other advertisers or websites. Thus, we are advising you to consult the respective Privacy Policies of these third-party ad servers for more detailed information. It may include their practices and instructions about how to opt-out of certain options. You can choose to disable cookies through your individual browser options.
+            Uyarcha's Privacy Policy does not apply to other advertisers or websites. Thus, we are advising you to consult the respective Privacy Policies of these third-party ad servers for more detailed information. It may include their practices and instructions about how to opt-out of certain options. You can choose to disable cookies through your individual browser options.
           </p>
 
           <h2 className="text-2xl font-bold mt-10 mb-4">4. User Data Protection</h2>
@@ -64,7 +64,7 @@ const PrivacyPolicy = () => {
 
           <h2 className="text-2xl font-bold mt-10 mb-4">5. Contact Information</h2>
           <p>
-            If you have any questions about this Privacy Policy, please contact us via our <Link to="/contact">contact page</Link> or directly at <a href="mailto:hello@trendingnews.com" className="text-accent hover:underline">hello@trendingnews.com</a>.
+            If you have any questions about this Privacy Policy, please contact us via our <Link to="/contact">contact page</Link> or directly at <a href="mailto:hello@uyarcha.com" className="text-accent hover:underline">hello@uyarcha.com</a>.
           </p>
 
           <p className="text-sm text-muted-foreground mt-12 pt-6 border-t border-border">

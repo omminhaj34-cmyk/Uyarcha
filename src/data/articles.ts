@@ -12,37 +12,42 @@ export interface Article {
   image: string;
   featured?: boolean;
   readTime: string;
-  status?: "draft" | "published";
+  status?: "draft" | "published" | "scheduled";
   metaTitle?: string;
   metaDescription?: string;
+  publishDate?: string;
+  tags?: string[];
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 export const categories = [
-  "Technology", "Programming", "AI", "Productivity", "Education"
+  "Technology", "Programming", "AI", "Productivity", "Education", "Business", "Marketing"
 ];
+
+export const allTags = [
+  "React", "Node.js", "TypeScript", "Python", "Machine Learning", "SEO", "Web Development", "Design"
+];
+
+import { getPosts, getPost } from "@/lib/api";
 
 // Base hook for fetching all articles
 export const useArticles = () => {
   return useQuery({
     queryKey: ['articles'],
-    queryFn: async () => {
-      const res = await fetch('/api/posts');
-      if (!res.ok) throw new Error('Failed to fetch posts');
-      return res.json() as Promise<Article[]>;
-    }
+    queryFn: getPosts
   });
 };
 
 export const usePublishedArticles = () => {
   const { data: articles = [], ...rest } = useArticles();
-  const published = articles.filter(article => article.status !== 'draft');
+  const published = articles.filter(article => String(article.status || "").toLowerCase() === 'published');
   return { data: published, ...rest };
 };
 
 export const useFeaturedArticles = () => {
   const { data: articles = [], ...rest } = usePublishedArticles();
-  const featured = articles.filter(article => article.featured);
-  // Optional: return only top 4 if needed, but original returned all featured or top 4
+  const featured = articles.filter(article => article.featured === true || (article as any).featured === 1);
   return { data: featured.slice(0, 4), ...rest };
 };
 
@@ -53,8 +58,12 @@ export const useRecentArticles = (count: number = 3) => {
 };
 
 export const useArticleBySlug = (slug: string | undefined) => {
-  const { data: articles = [], ...rest } = useArticles();
-  return { data: articles.find(a => a.slug === slug), ...rest };
+  const query = useQuery({
+    queryKey: ['article', slug],
+    queryFn: () => getPost(slug as string),
+    enabled: !!slug
+  });
+  return { data: query.data, ...query };
 };
 
 export const useRelatedArticles = (category: string, currentId: string) => {
