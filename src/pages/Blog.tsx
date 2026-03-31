@@ -1,133 +1,158 @@
-import { useSearchParams } from "react-router-dom";
 import Layout from "@/components/Layout";
 import ArticleCard from "@/components/ArticleCard";
 import Sidebar from "@/components/Sidebar";
-import { useEffect, useState } from "react";
-import { categories } from "@/data/articles";
-import type { Article } from "@/data/articles";
-import { Link } from "react-router-dom";
+import { useSearchParams, Link } from "react-router-dom";
+import { categories } from "@/lib/constants";
+import PageLoader from "@/components/PageLoader";
+import ErrorFallback from "@/components/ErrorFallback";
+import { useState, useEffect } from "react";
+import { Search, Loader2 } from "lucide-react";
+import { usePublishedPosts } from "@/hooks/usePosts";
+
+import type { Article } from "@/types/post";
+
+/**
+ * Feature 17: Load More Pagination
+ * Feature 1: Debounced Search
+ * Feature 15: Category filtering
+ */
+
+import { ArticleListSkeleton } from "@/components/ArticleSkeleton";
 
 const Blog = () => {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const categoryFilter = searchParams.get("category");
   const tagFilter = searchParams.get("tag");
-  const searchQuery = searchParams.get("search")?.toLowerCase();
-  const page = parseInt(searchParams.get("page") || "1", 10);
-  const POSTS_PER_PAGE = 5;
+  const initialSearch = searchParams.get("search") || "";
 
-  const [articles, setArticles] = useState<Article[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [searchTerm, setSearchTerm] = useState(initialSearch);
+  const [debouncedSearch, setDebouncedSearch] = useState(initialSearch);
 
   useEffect(() => {
-    fetch("/api/posts")
-      .then(r => r.json())
-      .then(data => {
-        const posts = Array.isArray(data) ? data : [];
-        const visiblePosts = posts.filter(
-          p => String(p.status || "").toLowerCase() === "published"
-        );
-        setArticles(visiblePosts);
-        setLoading(false);
-      })
-      .catch(() => {
-        setArticles([]);
-        setLoading(false);
-      });
-  }, []);
+    const timer = setTimeout(() => {
+      setDebouncedSearch(searchTerm);
+      if (searchTerm) {
+        setSearchParams(prev => { prev.set("search", searchTerm); return prev; });
+      } else {
+        setSearchParams(prev => { prev.delete("search"); return prev; });
+      }
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchTerm, setSearchParams]);
 
-  if (loading) {
+  // Feature 17: useInfiniteQuery for "Load More" from hooks layer
+  const {
+    data,
+    fetchNextPage,
+    hasNextPage,
+    isFetchingNextPage,
+    isLoading,
+    isError,
+    refetch
+  } = usePublishedPosts(categoryFilter, tagFilter, debouncedSearch);
+
+  if (isLoading) {
     return (
-      <Layout>
-        <div className="container py-20 text-center">Loading articles...</div>
-      </Layout>
+        <Layout>
+            <div className="container py-8">
+                <div className="flex flex-col gap-12">
+                   <ArticleListSkeleton count={4} />
+                </div>
+            </div>
+        </Layout>
     );
   }
+  if (isError) return <ErrorFallback message="We couldn't load the blog posts. Check your connection." onRetry={refetch} />;
 
-  let filtered = articles || [];
+  const allArticles = data?.pages.flat() || [];
+  
+  // Local filtering for tags (server only does title/excerpt/category currently)
+  let filtered = allArticles;
   if (categoryFilter) {
-    filtered = filtered.filter(a => a.category.toLowerCase() === categoryFilter.toLowerCase());
+      filtered = filtered.filter(a => a.category.toLowerCase() === categoryFilter.toLowerCase());
   }
   if (tagFilter) {
-    filtered = filtered.filter(a => a.tags?.map(t => t.toLowerCase()).includes(tagFilter.toLowerCase()));
+    filtered = filtered.filter(a => a.tags?.some(t => t.toLowerCase() === tagFilter.toLowerCase()));
   }
-  if (searchQuery) {
-    filtered = filtered.filter(a =>
-      a.title.toLowerCase().includes(searchQuery) ||
-      a.excerpt.toLowerCase().includes(searchQuery) ||
-      a.category.toLowerCase().includes(searchQuery) ||
-      a.tags?.some(tag => tag.toLowerCase().includes(searchQuery))
-    );
-  }
-
-  const totalPages = Math.ceil(filtered.length / POSTS_PER_PAGE);
-  const paginated = filtered.slice((page - 1) * POSTS_PER_PAGE, page * POSTS_PER_PAGE);
 
   return (
     <Layout>
       <section className="container py-8">
-        {/* Breadcrumb */}
         <nav className="text-sm text-muted-foreground mb-6">
           <Link to="/" className="hover:text-accent transition-colors">Home</Link>
           <span className="mx-2">/</span>
-          <span className="text-foreground font-medium">Blog</span>
-          {categoryFilter && (
-            <>
-              <span className="mx-2">/</span>
-              <span className="text-foreground font-medium">{categoryFilter}</span>
-            </>
-          )}
-          {tagFilter && (
-            <>
-              <span className="mx-2">/</span>
-              <span className="text-foreground font-medium">Tag: {tagFilter}</span>
-            </>
-          )}
+          <span className="text-foreground font-medium">Blog Feed</span>
         </nav>
 
-        <h1 className="font-display text-3xl md:text-4xl font-bold text-foreground mb-2">
-          {categoryFilter ? categoryFilter : tagFilter ? `Tag: ${tagFilter}` : searchQuery ? `Search: "${searchQuery}"` : "All Articles"}
-        </h1>
-        <p className="text-muted-foreground mb-8">{filtered.length} article{filtered.length !== 1 ? "s" : ""} found</p>
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
+          <div>
+            <h1 className="font-display text-4xl font-black text-foreground mb-2">
+              {categoryFilter ? categoryFilter : debouncedSearch ? `Search results` : "The Feed"}
+            </h1>
+            <p className="text-muted-foreground font-medium">Discover stories, thinking, and expertise.</p>
+          </div>
 
-        {/* Category filters */}
-        <div className="flex flex-wrap gap-2 mb-8">
-          <Link to="/blog" className={`px-4 py-2 text-sm rounded-full border transition-colors ${!categoryFilter ? "bg-accent text-accent-foreground border-accent" : "border-border text-muted-foreground hover:border-accent hover:text-accent"}`}>All</Link>
+          <div className="relative w-full md:max-w-md">
+            <Search className="absolute left-4 top-1/2 -translate-y-1/2 text-muted-foreground/60" size={18} />
+            <input
+              type="text"
+              placeholder="Search by title, tag or category..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-12 pr-4 py-3 rounded-2xl border border-border bg-card shadow-sm focus:outline-none focus:ring-2 focus:ring-accent/20 transition-all font-medium"
+            />
+          </div>
+        </div>
+
+        <div className="flex flex-wrap gap-2 mb-12 border-b border-border pb-8">
+          <Link to="/blog" className={`px-5 py-2 text-sm font-bold rounded-full border transition-all ${!categoryFilter ? "bg-accent text-white border-accent shadow-lg shadow-accent/20" : "border-border text-muted-foreground hover:border-accent hover:text-accent"}`}>All Stories</Link>
           {categories.map(cat => (
-            <Link key={cat} to={`/blog?category=${cat}`} className={`px-4 py-2 text-sm rounded-full border transition-colors ${categoryFilter?.toLowerCase() === cat.toLowerCase() ? "bg-accent text-accent-foreground border-accent" : "border-border text-muted-foreground hover:border-accent hover:text-accent"}`}>{cat}</Link>
+            <Link key={cat} to={`/blog?category=${cat}`} className={`px-5 py-2 text-sm font-bold rounded-full border transition-all ${categoryFilter?.toLowerCase() === cat.toLowerCase() ? "bg-accent text-white border-accent shadow-lg shadow-accent/20" : "border-border text-muted-foreground hover:border-accent hover:text-accent"}`}>{cat}</Link>
           ))}
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
+          <div className="lg:col-span-2 space-y-12">
             {filtered.length === 0 ? (
-              <p className="text-muted-foreground text-center py-12">No articles found.</p>
+              <div className="bg-card border border-border border-dashed rounded-3xl p-24 text-center">
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-muted mb-6 ring-8 ring-muted/20">
+                  <Search size={40} className="text-muted-foreground/40" />
+                </div>
+                <h3 className="text-2xl font-black text-foreground mb-3">No matches found</h3>
+                <p className="text-muted-foreground max-w-sm mx-auto font-medium">
+                  We couldn't find any articles matching "{debouncedSearch || categoryFilter || 'your criteria'}". 
+                </p>
+              </div>
             ) : (
-              <div className="space-y-6">
-                {paginated.map((article, i) => (
-                  <div key={article.id || Math.random()}>
-                    <ArticleCard article={article} />
-                  </div>
-                ))}
+              <div className="space-y-10">
+                <div className="grid grid-cols-1 gap-10">
+                    {filtered.map((article) => (
+                        <ArticleCard key={article.id} article={article} />
+                    ))}
+                </div>
 
-                {totalPages > 1 && (
-                  <div className="flex justify-center gap-4 mt-8 pt-6 border-t border-border">
-                    {page > 1 && (
-                      <Link to={`/blog?${new URLSearchParams({ ...Object.fromEntries(searchParams.entries()), page: String(page - 1) }).toString()}`} className="px-4 py-2 border rounded-md hover:bg-accent hover:text-accent-foreground transition-colors">
-                        Previous
-                      </Link>
-                    )}
-                    <span className="flex items-center text-sm font-medium">Page {page} of {totalPages}</span>
-                    {page < totalPages && (
-                      <Link to={`/blog?${new URLSearchParams({ ...Object.fromEntries(searchParams.entries()), page: String(page + 1) }).toString()}`} className="px-4 py-2 border rounded-md hover:bg-accent hover:text-accent-foreground transition-colors">
-                        Next
-                      </Link>
-                    )}
-                  </div>
+                {/* Feature 17: Load More Button */}
+                {hasNextPage && (
+                    <div className="pt-12 text-center">
+                        <button 
+                            onClick={() => fetchNextPage()}
+                            disabled={isFetchingNextPage}
+                            className="inline-flex items-center justify-center px-12 py-4 bg-foreground text-background font-black rounded-full hover:scale-105 active:scale-95 transition-all shadow-xl shadow-foreground/10 uppercase tracking-widest text-xs disabled:opacity-50"
+                        >
+                            {isFetchingNextPage ? (
+                                <><Loader2 className="mr-2 animate-spin" size={16} /> Loading More</>
+                            ) : (
+                                "Load More Stories"
+                            )}
+                        </button>
+                    </div>
                 )}
               </div>
             )}
           </div>
-          <Sidebar />
+          <div className="space-y-12">
+            <Sidebar />
+          </div>
         </div>
       </section>
     </Layout>

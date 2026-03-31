@@ -1,9 +1,11 @@
-import { useState, useEffect, Suspense, lazy } from "react";
+import { useState, useEffect, Suspense, lazy, useMemo } from "react";
 import Layout from "@/components/Layout";
 import { Link } from "react-router-dom";
-import { PlusCircle, Edit, Trash2, X, Save, Copy, CheckSquare } from "lucide-react";
-import { categories } from "@/data/articles";
-import { createPost, updatePost, deletePost, uploadImage, getImageUrl, loginAdmin } from "@/lib/api";
+import { toast } from "sonner";
+import { PlusCircle, Edit, Trash2, X, Save, Copy, CheckSquare, Eye, FileText, LayoutDashboard, Share2, AlertTriangle, CloudOff } from "lucide-react";
+import { getImageUrl, supabase, isInvalid as isSupabaseConfigInvalid } from "@/lib/supabase";
+import { categories } from "@/lib/constants";
+import type { Article } from "@/types/post";
 
 import "react-quill/dist/quill.snow.css";
 
@@ -19,99 +21,128 @@ const quillModules = {
     ]
 };
 
+import { calculateReadTime, slugify } from "@/lib/db";
+import { useAdminPosts, useDeletePost, useSavePost } from "@/hooks/useAdminPosts";
+import { getPostContentForAdmin } from "@/queries/adminPosts";
+import { isOnline } from "@/lib/config";
+import PageLoader from "@/components/PageLoader";
+import ErrorFallback from "@/components/ErrorFallback";
+import AdminCertificateTable from "@/components/AdminCertificateTable";
+
 const Admin = () => {
-    const [isLoggedIn, setIsLoggedIn] = useState(!!localStorage.getItem('admin_token'));
+    const [isLoggedIn, setIsLoggedIn] = useState(false);
+    const [userProfile, setUserProfile] = useState<any>(null);
     const [loginData, setLoginData] = useState({ password: '' });
-    const [posts, setPosts] = useState<any[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState(false);
     const [isModalOpen, setIsModalOpen] = useState(false);
-    const [editingPost, setEditingPost] = useState<any>(null);
-    const [formData, setFormData] = useState<any>({});
+    const [editingPost, setEditingPost] = useState<Partial<Article> | null>(null);
+    const [formData, setFormData] = useState<Partial<Article>>({});
     const [tagsInput, setTagsInput] = useState("");
-    const [isLoading, setIsLoading] = useState(false);
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
+    const [activeTab, setActiveTab] = useState<'posts' | 'certificates'>('posts');
+
+    const { 
+        data: posts = [] as Partial<Article>[], 
+        isLoading: isPostsLoading, 
+        isError: isPostsError,
+        refetch: refetchPosts
+    } = useAdminPosts(isLoggedIn);
+    
+    // We fetch full content only when editing
+    const [isLoadingContent, setIsLoadingContent] = useState(false);
 
     useEffect(() => {
-        if (!isLoggedIn) return;
-        async function load() {
-            try {
-                const data = await createApiFetch("/api/posts");
-                setPosts(Array.isArray(data) ? data : []);
-            } catch {
-                setError(true);
-                setPosts([]);
-            }
-            setLoading(false);
-        }
-        load();
-    }, [isLoggedIn]);
-
-    // Step 4: Draft Autosave
-    useEffect(() => {
-        if (!isModalOpen || editingPost) return;
-        const savedDraft = localStorage.getItem('draft_post');
-        if (savedDraft) {
-            try {
-                const draft = JSON.parse(savedDraft);
-                setFormData(prev => ({ ...prev, ...draft }));
-            } catch (e) {
-                console.error("Failed to parse draft", e);
-            }
-        }
-    }, [isModalOpen, editingPost]);
-
-    useEffect(() => {
-        if (isModalOpen && !editingPost && Object.keys(formData).length > 0) {
-            localStorage.setItem('draft_post', JSON.stringify(formData));
-        }
-    }, [formData, isModalOpen, editingPost]);
-
-    const handleLogin = async (e: React.FormEvent) => {
-        e.preventDefault();
-        try {
-            const token = await loginAdmin(loginData.password);
-            localStorage.setItem('admin_token', token);
+        const adminAccess = localStorage.getItem('admin_access');
+        if (adminAccess === 'true') {
             setIsLoggedIn(true);
+            setUserProfile({ id: 'admin', role: 'admin', email: 'uyarchatech@gmail.com' });
+        }
+
+        // Keep Supabase session sync as fallback
+        supabase.auth.getSession().then(({ data: { session } }) => {
+            if (session) {
+                setIsLoggedIn(true);
+                fetchProfile(session.user.id);
+            }
+        });
+
+        const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
+            if (session) {
+                setIsLoggedIn(true);
+                fetchProfile(session.user.id);
+            } else if (localStorage.getItem('admin_access') !== 'true') {
+                setIsLoggedIn(false);
+                setUserProfile(null);
+            }
+        });
+
+        return () => subscription.unsubscribe();
+    }, []);
+
+    const fetchProfile = async (userId: string) => {
+        try {
+            const { data } = await supabase.from("users").select("id, role, email").eq("id", userId).single();
+            setUserProfile(data || { id: userId, role: 'admin', email: 'uyarchatech@gmail.com' });
         } catch (err) {
-            alert("Invalid credentials");
+            setUserProfile({ id: userId, role: 'admin', email: 'uyarchatech@gmail.com' });
         }
     };
 
-    const openModal = (post?: any, duplicate = false) => {
-        if (post) {
-            const data = duplicate ? {
-                ...post,
-                id: Date.now().toString(),
-                title: post.title + " Copy",
-                slug: "",
-                status: "draft"
-            } : post;
-            setEditingPost(duplicate ? null : post);
-            setFormData(data);
-            setTagsInput(post?.tags?.join(", ") || "");
-            setImagePreview(getImageUrl(post?.image || ""));
+    const handleLogin = async (e: React.FormEvent) => {
+        e.preventDefault();
+        // Password for admin area
+        if (loginData.password === 'wt-1203') {
+            localStorage.setItem('admin_access', 'true');
+            setIsLoggedIn(true);
+            setUserProfile({ id: 'admin', role: 'admin', email: 'uyarchatech@gmail.com' });
         } else {
-            setEditingPost(null);
-            setFormData({
-                title: "",
-                slug: "",
-                excerpt: "",
-                content: "",
-                author: "Admin",
-                date: new Date().toISOString().split("T")[0],
-                category: categories[0] || 'Technology',
-                image: "",
-                readTime: "5 min read",
-                status: "published",
-                publishDate: new Date().toISOString().slice(0, 16),
-                tags: []
-            });
-            setTagsInput("");
-            setImagePreview(null);
+            alert("Invalid access password");
         }
-        setIsModalOpen(true);
+    };
+
+    const handleSignOut = async () => {
+        localStorage.removeItem('admin_access');
+        await supabase.auth.signOut();
+        setIsLoggedIn(false);
+        setUserProfile(null);
+    };
+
+    const handleExport = () => {
+        const dataStr = JSON.stringify(posts, null, 2);
+        const dataUri = 'data:application/json;charset=utf-8,'+ encodeURIComponent(dataStr);
+        const exportFileDefaultName = `uyarcha_backup_${new Date().toISOString().split('T')[0]}.json`;
+        const linkElement = document.createElement('a');
+        linkElement.setAttribute('href', dataUri);
+        linkElement.setAttribute('download', exportFileDefaultName);
+        linkElement.click();
+        toast.success("Backup exported as JSON");
+    };
+
+    // Draft Autosave
+    const [lastSaved, setLastSaved] = useState<string | null>(null);
+    useEffect(() => {
+        if (!isModalOpen || !formData.title || !formData.content || editingPost) return;
+
+        const interval = setInterval(() => {
+            console.log("ADMIN: Autosaving draft...");
+            const draftData = { 
+                ...formData, 
+                status: 'draft' as const,
+                publish_date: new Date().toISOString() 
+            };
+            saveMutation.mutate({ data: draftData, imageFile: null });
+            setLastSaved(new Date().toLocaleTimeString());
+        }, 30000); // 30 sec for stability
+
+        return () => clearInterval(interval);
+    }, [isModalOpen, formData, editingPost]);
+
+    const deleteMutation = useDeletePost();
+
+    const handleDelete = async (id: string) => {
+        if (!window.confirm("Permanently delete this article?")) return;
+        deleteMutation.mutate(id);
+        toast.info("Deleting post...");
     };
 
     const closeModal = () => {
@@ -119,95 +150,100 @@ const Admin = () => {
         setEditingPost(null);
         setImageFile(null);
         setImagePreview(null);
+        setIsLoadingContent(false);
     };
 
-    const handleDelete = async (id: string) => {
-        if (!window.confirm("Delete post?")) return;
-        try {
-            await deletePost(id);
-            // Step 5: Remove page reloads
-            setPosts(posts.filter(p => (p.id !== id && p._id !== id)));
-        } catch (e) {
-            alert("Delete failed");
-        }
-    };
+    const saveMutation = useSavePost(editingPost, closeModal);
 
-    const handleSave = async (e: any) => {
+    const handleSave = async (e: React.FormEvent) => {
         e.preventDefault();
+        
+        if (!formData.title?.trim()) return toast.error("Title is mandatory.");
+        if (!formData.content?.trim()) return toast.error("Content is mandatory.");
+        
+        console.log("Saving formData:", formData);
+        console.log("Selected imageFile:", imageFile);
 
-        // Step 6: Post Validation
-        if (!formData.title?.trim() || !formData.content?.trim() || !formData.category?.trim()) {
-            alert("Title, Content, and Category are required.");
-            return;
-        }
-
-        setIsLoading(true);
         const data = { ...formData };
         data.tags = tagsInput.split(",").map((t: string) => t.trim()).filter(Boolean);
+        data.readTime = calculateReadTime(data.content || "");
+        
+        if (!data.slug) data.slug = slugify(data.title || "");
 
-        // Step 2: Auto slug generation
-        if (!data.slug) {
-            data.slug = data.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
+        const publishDate = data.date ? new Date(data.date).toISOString() : new Date().toISOString();
+        data.publish_date = publishDate;
+
+        if (!data.status) data.status = 'draft';
+
+        const now = new Date();
+        const pubDate = new Date(publishDate);
+        if (pubDate > now && data.status !== 'draft') {
+            data.status = 'scheduled';
         }
 
-        try {
-            if (imageFile) {
-                const url = await uploadImage(imageFile);
-                data.image = url;
+        saveMutation.mutate({ data, imageFile });
+    };
+
+    const openModal = async (post?: Partial<Article>, duplicate = false) => {
+        setIsModalOpen(true);
+        if (post) {
+            // Optimistic fast UI update with list metadata
+            const postDate = (String(post.publish_date || post.date || new Date().toISOString())).split("T")[0];
+            const dataBase = duplicate ? { ...post, id: undefined, title: post.title + " (Copy)", slug: "", status: "draft" as const } : post;
+            
+            setFormData({ ...dataBase, date: postDate });
+            setEditingPost(duplicate ? null : post);
+            setImagePreview(getImageUrl(post?.image || ""));
+            
+            // Background fetch heavy content/seo tags
+            setIsLoadingContent(true);
+            const fullPost = await getPostContentForAdmin(post.id);
+            setIsLoadingContent(false);
+            
+            if (fullPost) {
+                 setFormData(prev => ({ ...prev, content: fullPost.content, excerpt: fullPost.excerpt, seo_title: fullPost.seo_title, seo_description: fullPost.seo_description, seo_keywords: fullPost.seo_keywords }));
+                 setTagsInput(fullPost.tags?.join(", ") || "");
             }
 
-            if (editingPost) {
-                const updated = await updatePost(editingPost.id || editingPost._id, data);
-                // Step 5: Remove page reloads
-                setPosts(posts.map(p => (p.id === (editingPost.id || editingPost._id) || p._id === (editingPost.id || editingPost._id)) ? updated : p));
-            } else {
-                const created = await createPost(data);
-                // Step 5: Remove page reloads
-                setPosts([created, ...posts]);
-            }
-
-            // Step 4: Clear draft after successful save
-            localStorage.removeItem('draft_post');
-            closeModal();
-        } catch (err: any) {
-            alert(err.message || "Save failed");
-        } finally {
-            setIsLoading(false);
+        } else {
+            setEditingPost(null);
+            const today = new Date().toISOString().split("T")[0];
+            setFormData({ title: "", slug: "", excerpt: "", content: "", author: userProfile?.email || "Admin", date: today, category: categories[0], image: "", status: "published" as const, featured: false, publish_date: new Date().toISOString() });
+            setTagsInput("");
+            setImagePreview(null);
         }
     };
 
-    async function createApiFetch(url: string) {
-        const token = localStorage.getItem('admin_token');
-        const res = await fetch(url, {
-            headers: {
-                'Authorization': `Bearer ${token}`
-            }
-        });
-        if (!res.ok) throw new Error();
-        return res.json();
-    }
+    // closeModal was hoisted
+
+    const stats = useMemo(() => {
+        return {
+            total: posts.length,
+            published: posts.filter(p => p.status === 'published').length,
+            drafts: posts.filter(p => p.status === 'draft').length,
+            views: posts.reduce((acc, p) => acc + (p.views || 0), 0)
+        };
+    }, [posts]);
+
+    // PHASE 6: VIRTUALIZATION STRATEGY
+    // If stats.total exceeds 100 posts, consider replacing this table with @tanstack/react-virtual
+    // to render solely the ~15 items currently visible within the viewport scroll-boundary.
 
     if (!isLoggedIn) {
         return (
             <Layout>
-                <div className="container py-12 flex justify-center">
-                    <div className="w-full max-w-md bg-card p-8 rounded-xl border border-border shadow-soft">
-                        <h1 className="text-2xl font-bold mb-6 text-center">Admin Login</h1>
-                        <form onSubmit={handleLogin} className="space-y-4">
-                            <div>
-                                <label className="block text-sm font-medium mb-1">Admin Password</label>
-                                <input
-                                    type="password"
-                                    value={loginData.password}
-                                    onChange={(e) => setLoginData({ ...loginData, password: e.target.value })}
-                                    className="w-full border rounded p-3 bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20"
-                                    placeholder="Enter password..."
-                                    required
-                                />
+                <div className="container py-20 flex justify-center">
+                    <div className="w-full max-w-md bg-card p-8 rounded-2xl border border-border shadow-2xl">
+                        <div className="text-center mb-8">
+                            <div className="inline-flex items-center justify-center w-12 h-12 bg-accent/10 text-accent rounded-xl mb-4">
+                               <LayoutDashboard size={24} />
                             </div>
-                            <button className="w-full bg-accent text-white py-3 rounded-lg font-bold hover:opacity-90 transition-all shadow-lg shadow-accent/20">
-                                Access Dashboard
-                            </button>
+                            <h1 className="text-2xl font-bold">Admin Portal</h1>
+                            <p className="text-muted-foreground text-sm">Enter password to manage Uyarcha</p>
+                        </div>
+                        <form onSubmit={handleLogin} className="space-y-4">
+                            <input type="password" value={loginData.password} onChange={(e) => setLoginData({ ...loginData, password: e.target.value })} className="w-full border rounded-xl p-3 bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20" placeholder="Admin Password" required />
+                            <button className="w-full bg-accent text-white py-3 rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-accent/20">Access Dashboard</button>
                         </form>
                     </div>
                 </div>
@@ -215,270 +251,221 @@ const Admin = () => {
         );
     }
 
-    if (loading && posts.length === 0) {
-        return (
-            <Layout>
-                <div className="container py-20 text-center">
-                    <div className="animate-pulse text-muted-foreground">Loading dashboard...</div>
-                </div>
-            </Layout>
-        );
-    }
+    if (isPostsLoading) return <PageLoader message="Syncing dashboard metrics..." />;
+    if (isPostsError) return <ErrorFallback message="Failed to connect to database." onRetry={refetchPosts} />;
 
     return (
         <Layout>
-            <section className="container py-12">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-4">
+            <div className="container py-8 max-w-7xl">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
                     <div>
-                        <h1 className="text-3xl font-bold font-display">Uyarcha CMS</h1>
-                        <p className="text-muted-foreground">Manage your articles and brand visibility</p>
+                        <h1 className="text-3xl font-black tracking-tight">Dashboard</h1>
+                        <p className="text-muted-foreground">Monitor performance and global content state.</p>
                     </div>
                     <div className="flex gap-3">
-                        <button
-                            onClick={() => {
-                                localStorage.removeItem('admin_token');
-                                setIsLoggedIn(false);
-                            }}
-                            className="px-4 py-2 border rounded-lg text-sm font-medium hover:bg-muted transition-colors"
-                        >
-                            Logout
+                        <button onClick={handleExport} className="px-4 py-2 border rounded-xl text-sm font-bold hover:bg-muted transition-colors flex items-center gap-2">
+                            <Share2 size={16} /> Export JSON
                         </button>
-                        <button
-                            onClick={() => openModal()}
-                            className="flex items-center gap-2 px-6 py-2 bg-accent text-white rounded-lg font-semibold hover:opacity-90 transition-all shadow-md shadow-accent/20"
-                        >
-                            <PlusCircle size={20} />
-                            Create New Post
-                        </button>
+                        <button onClick={handleSignOut} className="px-4 py-2 border rounded-xl text-sm font-bold hover:bg-muted transition-colors">Sign Out</button>
+                        {activeTab === 'posts' && (
+                            <button onClick={() => openModal()} className="flex items-center gap-2 px-6 py-2 bg-accent text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-accent/20">
+                                <PlusCircle size={20} /> New Post
+                            </button>
+                        )}
                     </div>
                 </div>
 
-                <div className="bg-card border border-border rounded-xl overflow-hidden shadow-sm">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left">
-                            <thead className="bg-muted/50 border-b border-border">
-                                <tr>
-                                    <th className="p-4 font-semibold text-sm">Post</th>
-                                    <th className="p-4 font-semibold text-sm">Status</th>
-                                    <th className="p-4 font-semibold text-sm">Category</th>
-                                    <th className="p-4 font-semibold text-sm">Date</th>
-                                    <th className="p-4 font-semibold text-sm text-right">Actions</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-border">
-                                {posts.length === 0 ? (
-                                    <tr>
-                                        <td colSpan={5} className="p-12 text-center text-muted-foreground">
-                                            No posts found. Create your first post!
+                <div className="flex border-b border-border mb-8">
+                    <button onClick={() => setActiveTab('posts')} className={`px-6 py-3 font-bold border-b-2 transition-colors ${activeTab === 'posts' ? 'border-accent text-accent' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Posts</button>
+                    <button onClick={() => setActiveTab('certificates')} className={`px-6 py-3 font-bold border-b-2 transition-colors ${activeTab === 'certificates' ? 'border-accent text-accent' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Certificates</button>
+                </div>
+
+                {isSupabaseConfigInvalid && (
+                    <div className="mb-8 bg-destructive/10 border border-destructive/20 p-4 rounded-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4">
+                        <div className="flex items-center gap-3">
+                            <div className="w-10 h-10 bg-destructive/20 text-destructive rounded-full flex items-center justify-center flex-shrink-0">
+                                <CloudOff size={20} />
+                            </div>
+                            <div>
+                                <h3 className="font-bold text-destructive">Supabase Not Connected</h3>
+                                <p className="text-xs text-muted-foreground">Your .env file has placeholder values. Publishing and data fetching will not work until correctly configured.</p>
+                            </div>
+                        </div>
+                        <Link to="/" className="text-xs font-bold px-4 py-2 bg-destructive text-white rounded-lg whitespace-nowrap">Go Back</Link>
+                    </div>
+                )}
+
+                {activeTab === 'posts' ? (
+                <>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
+                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-center gap-3 text-muted-foreground mb-4 font-bold uppercase text-[10px] tracking-widest">
+                            <FileText size={16} /> Total Content
+                        </div>
+                        <div className="text-4xl font-black">{stats.total}</div>
+                    </div>
+                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-center gap-3 text-green-500 mb-4 font-bold uppercase text-[10px] tracking-widest">
+                            <CheckSquare size={16} /> Live Articles
+                        </div>
+                        <div className="text-4xl font-black">{stats.published}</div>
+                    </div>
+                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-center gap-3 text-amber-500 mb-4 font-bold uppercase text-[10px] tracking-widest">
+                            <Edit size={16} /> Drafts
+                        </div>
+                        <div className="text-4xl font-black">{stats.drafts}</div>
+                    </div>
+                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex items-center gap-3 text-accent mb-4 font-bold uppercase text-[10px] tracking-widest">
+                            <Eye size={16} /> Total Engagement
+                        </div>
+                        <div className="text-4xl font-black">{stats.views.toLocaleString()}</div>
+                    </div>
+                </div>
+
+                <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
+                    <table className="w-full text-left">
+                        <thead className="bg-muted/50 border-b border-border">
+                            <tr>
+                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Article</th>
+                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Status</th>
+                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Views</th>
+                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Date</th>
+                                <th className="p-4 font-bold text-xs uppercase tracking-wider text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-border">
+                            {posts.length === 0 ? (
+                                <tr><td colSpan={5} className="p-20 text-center text-muted-foreground font-medium italic">No articles yet. Start writing!</td></tr>
+                            ) : (
+                                posts.map((post: Partial<Article>) => (
+                                    <tr key={post.id} className="hover:bg-muted/30 transition-colors group">
+                                        <td className="p-4">
+                                            <div className="flex items-center gap-4">
+                                                <img 
+                                                    src={post.image || "/placeholder.svg"} 
+                                                    onError={(e)=>{(e.target as HTMLImageElement).src="/placeholder.svg"}} 
+                                                    className="w-10 h-10 rounded-lg object-cover bg-muted" 
+                                                />
+                                                <div>
+                                                    <div className="font-bold text-sm line-clamp-1">{post.title}</div>
+                                                    <div className="text-[10px] font-black uppercase text-muted-foreground/60">{post.category}</div>
+                                                </div>
+                                            </div>
+                                        </td>
+                                        <td className="p-4">
+                                            <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-black ${post.status === 'published' ? 'bg-green-100 text-green-700' : post.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
+                                                {post.status}
+                                            </span>
+                                        </td>
+                                         <td className="p-4 font-mono text-xs">{post.views || 0}</td>
+                                        <td className="p-4 text-xs text-muted-foreground">{String(post.publish_date || post.date || "").split('T')[0]}</td>
+                                        <td className="p-4 text-right">
+                                            <div className="flex justify-end gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
+                                                <button onClick={() => openModal(post, true)} className="p-2 hover:bg-muted rounded-lg" title="Duplicate"><Copy size={16} /></button>
+                                                <button onClick={() => openModal(post)} className="p-2 hover:bg-muted text-accent rounded-lg" title="Edit"><Edit size={16} /></button>
+                                                <button onClick={() => handleDelete(post.id as string)} className="p-2 hover:bg-red-50 text-red-600 rounded-lg" title="Delete"><Trash2 size={16} /></button>
+                                            </div>
                                         </td>
                                     </tr>
-                                ) : (
-                                    posts.map((post: any) => (
-                                        <tr key={post.id || post._id} className="hover:bg-muted/30 transition-colors">
-                                            <td className="p-4">
-                                                <div className="flex items-center gap-3">
-                                                    <div className="w-12 h-12 rounded bg-muted overflow-hidden flex-shrink-0">
-                                                        <img
-                                                            src={getImageUrl(post.image) || '/placeholder.svg'}
-                                                            onError={(e) => { e.currentTarget.src = '/placeholder.svg'; }}
-                                                            className="w-full h-full object-cover"
-                                                        />
-                                                    </div>
-                                                    <div>
-                                                        <div className="font-semibold line-clamp-1">{post.title}</div>
-                                                        <div className="text-xs text-muted-foreground">/{post.slug}</div>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="p-4">
-                                                <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-bold ${post.status === 'published' ? 'bg-green-100 text-green-700' : post.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-yellow-100 text-yellow-700'
-                                                    }`}>
-                                                    {post.status}
-                                                </span>
-                                            </td>
-                                            <td className="p-4 text-sm">{post.category}</td>
-                                            <td className="p-4 text-sm text-muted-foreground">{post.date}</td>
-                                            <td className="p-4 text-right">
-                                                <div className="flex justify-end gap-2">
-                                                    <button onClick={() => openModal(post, true)} className="p-2 hover:text-accent transition-colors" title="Duplicate">
-                                                        <Copy size={18} />
-                                                    </button>
-                                                    <button onClick={() => openModal(post)} className="p-2 hover:text-blue-500 transition-colors" title="Edit">
-                                                        <Edit size={18} />
-                                                    </button>
-                                                    <button onClick={() => handleDelete(post.id || post._id)} className="p-2 hover:text-red-500 transition-colors" title="Delete">
-                                                        <Trash2 size={18} />
-                                                    </button>
-                                                </div>
-                                            </td>
-                                        </tr>
-                                    ))
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
+                                ))
+                            )}
+                        </tbody>
+                    </table>
                 </div>
 
                 {isModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm">
-                        <div className="bg-background w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl animate-in fade-in zoom-in duration-200">
-                            <div className="p-6 border-b border-border flex justify-between items-center sticky top-0 bg-background z-10">
-                                <h2 className="text-xl font-bold font-display">{editingPost ? "Edit Content" : "Create New Content"}</h2>
-                                <button onClick={closeModal} className="p-2 hover:bg-muted rounded-full transition-colors">
-                                    <X size={20} />
-                                </button>
+                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                        <div className="bg-background w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-3xl shadow-2xl flex flex-col">
+                            <div className="p-6 border-b border-border flex justify-between items-center bg-card">
+                                <div>
+                                    <h2 className="text-xl font-black">{editingPost ? "Edit Article" : "Draft New Content"}</h2>
+                                    <div className="flex items-center gap-2">
+                                        <p className="text-[10px] text-muted-foreground uppercase font-black">Slug: {formData.slug || 'auto-generated'}</p>
+                                        {lastSaved && <span className="text-[10px] text-accent font-black uppercase tracking-tighter">• Autosaved {lastSaved}</span>}
+                                    </div>
+                                </div>
+                                <button onClick={closeModal} className="p-2 hover:bg-muted rounded-full transition-colors"><X size={20} /></button>
                             </div>
 
-                            <form onSubmit={handleSave} className="p-6 space-y-6">
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="space-y-4">
+                            <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-8 space-y-8">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                    <div className="md:col-span-2 space-y-6">
+                                        <input value={formData.title || ""} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full text-4xl font-black bg-transparent border-none outline-none placeholder:text-muted-foreground focus:ring-0" placeholder="Title of your story..." required />
+                                        <div className="border border-border rounded-2xl overflow-hidden min-h-[400px] relative">
+                                            {isLoadingContent && <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex items-center justify-center font-bold text-muted-foreground"><div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin mr-2" /> Loading full content...</div>}
+                                            <Suspense fallback={<PageLoader />}>
+                                                <ReactQuill value={formData.content || ""} onChange={(val) => setFormData({ ...formData, content: val })} modules={quillModules} className="border-none ql-custom" />
+                                            </Suspense>
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-6 bg-muted/30 p-6 rounded-2xl border border-border h-fit">
                                         <div>
-                                            <label className="block text-sm font-semibold mb-1">Title *</label>
-                                            <input
-                                                value={formData.title || ""}
-                                                onChange={(e) => setFormData({ ...formData, title: e.target.value })}
-                                                className="w-full border border-border rounded-lg p-3 bg-muted/30 focus:bg-background transition-all outline-none focus:ring-2 focus:ring-accent/20"
-                                                placeholder="Enter title..."
-                                                required
-                                            />
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Publishing settings</label>
+                                            <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })} className="w-full bg-background border border-border rounded-xl p-3 text-sm font-bold appearance-none">
+                                                <option value="published">Published</option>
+                                                <option value="draft">Draft Only</option>
+                                                <option value="scheduled">Scheduled</option>
+                                            </select>
                                         </div>
                                         <div>
-                                            <label className="block text-sm font-semibold mb-1">Slug (auto-generated if empty)</label>
-                                            <input
-                                                value={formData.slug || ""}
-                                                onChange={(e) => setFormData({ ...formData, slug: e.target.value })}
-                                                className="w-full border border-border rounded-lg p-3 bg-muted/30 outline-none focus:ring-2 focus:ring-accent/20"
-                                                placeholder="ai-tools-guide"
-                                            />
-                                        </div>
-                                        <div>
-                                            <label className="block text-sm font-semibold mb-1">Category *</label>
-                                            <select
-                                                value={formData.category}
-                                                onChange={(e) => setFormData({ ...formData, category: e.target.value })}
-                                                className="w-full border border-border rounded-lg p-3 bg-muted/30 outline-none focus:ring-2 focus:ring-accent/20"
-                                            >
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Category</label>
+                                            <select value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-sm font-bold">
                                                 {categories.map(c => <option key={c} value={c}>{c}</option>)}
                                             </select>
                                         </div>
-                                    </div>
-
-                                    <div className="space-y-4">
                                         <div>
-                                            <label className="block text-sm font-semibold mb-1">Featured Image</label>
-                                            <div className="flex gap-4">
-                                                <div className="w-24 h-24 border-2 border-dashed border-border rounded-lg overflow-hidden bg-muted flex-shrink-0">
-                                                    {imagePreview ? (
-                                                        <img src={imagePreview} className="w-full h-full object-cover" />
-                                                    ) : (
-                                                        <div className="w-full h-full flex items-center justify-center text-muted-foreground"><PlusCircle size={20} /></div>
-                                                    )}
-                                                </div>
-                                                <div className="flex-1 space-y-2">
-                                                    <input
-                                                        type="file"
-                                                        accept="image/*"
-                                                        onChange={(e) => {
-                                                            const file = e.target.files?.[0];
-                                                            if (file) {
-                                                                setImageFile(file);
-                                                                setImagePreview(URL.createObjectURL(file));
-                                                            }
-                                                        }}
-                                                        className="w-full text-xs"
-                                                    />
-                                                    <input
-                                                        value={formData.image || ""}
-                                                        onChange={(e) => {
-                                                            setFormData({ ...formData, image: e.target.value });
-                                                            setImagePreview(e.target.value);
-                                                        }}
-                                                        placeholder="Or paste URL..."
-                                                        className="w-full border border-border rounded-lg p-2 text-sm bg-muted/30 outline-none"
-                                                    />
-                                                </div>
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Cover Image</label>
+                                            <div className="aspect-video bg-background border border-border rounded-xl mb-3 overflow-hidden">
+                                                {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-muted-foreground italic text-xs">No image</div>}
                                             </div>
-                                        </div>
-                                        <div className="grid grid-cols-2 gap-4">
-                                            <div>
-                                                <label className="block text-sm font-semibold mb-1">Status</label>
-                                                <select
-                                                    value={formData.status}
-                                                    onChange={(e) => setFormData({ ...formData, status: e.target.value })}
-                                                    className="w-full border border-border rounded-lg p-2 text-sm bg-muted/30"
-                                                >
-                                                    <option value="published">Published</option>
-                                                    <option value="draft">Draft</option>
-                                                    <option value="scheduled">Scheduled</option>
-                                                </select>
-                                            </div>
-                                            <div>
-                                                <label className="block text-sm font-semibold mb-1">Publish Date</label>
-                                                <input
-                                                    type="datetime-local"
-                                                    value={formData.publishDate || ""}
-                                                    onChange={(e) => setFormData({ ...formData, publishDate: e.target.value })}
-                                                    className="w-full border border-border rounded-lg p-2 text-sm bg-muted/30"
-                                                />
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-semibold mb-2">Content *</label>
-                                    <div className="border border-border rounded-xl overflow-hidden min-h-[300px]">
-                                        <Suspense fallback={<div className="p-8 text-center text-muted-foreground animate-pulse">Loading editor...</div>}>
-                                            <ReactQuill
-                                                value={formData.content || ""}
-                                                onChange={(val) => setFormData({ ...formData, content: val })}
-                                                modules={quillModules}
-                                                className="border-none"
+                                             <input
+                                                type="file"
+                                                accept="image/*"
+                                                onChange={(e) => {
+                                                    if (e.target.files && e.target.files[0]) {
+                                                        const file = e.target.files[0];
+                                                        console.log("IMAGE SELECTED:", file);
+                                                        setImageFile(file);
+                                                        setImagePreview(URL.createObjectURL(file));
+                                                    }
+                                                }}
+                                                className="w-full text-xs"
                                             />
-                                        </Suspense>
+                                        </div>
+                                        <div className="flex items-center gap-3 bg-background p-3 rounded-xl border border-border">
+                                            <input type="checkbox" id="featured" checked={formData.featured} onChange={(e) => setFormData({ ...formData, featured: e.target.checked })} />
+                                            <label htmlFor="featured" className="text-xs font-bold">Featured Story</label>
+                                        </div>
+                                        <div className="pt-4 border-t border-border mt-4 space-y-4">
+                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">SEO Advanced</label>
+                                            <input value={formData.seo_title || ""} onChange={(e) => setFormData({ ...formData, seo_title: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs" placeholder="SEO Title override..." />
+                                            <textarea value={formData.seo_description || ""} onChange={(e) => setFormData({ ...formData, seo_description: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs min-h-[60px]" placeholder="Brief meta description..." />
+                                            <input value={formData.seo_keywords || ""} onChange={(e) => setFormData({ ...formData, seo_keywords: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs" placeholder="Keywords (comma separated)..." />
+                                        </div>
                                     </div>
-                                </div>
-
-                                <div>
-                                    <label className="block text-sm font-semibold mb-1">Tags (comma separated)</label>
-                                    <input
-                                        value={tagsInput}
-                                        onChange={(e) => setTagsInput(e.target.value)}
-                                        className="w-full border border-border rounded-lg p-3 bg-muted/30 outline-none"
-                                        placeholder="AI, Tech, Future"
-                                    />
-                                </div>
-
-                                <div className="flex justify-end gap-3 pt-4 border-t border-border sticky bottom-0 bg-background py-4">
-                                    <button
-                                        type="button"
-                                        onClick={closeModal}
-                                        className="px-6 py-2 border border-border rounded-lg font-medium hover:bg-muted transition-colors"
-                                    >
-                                        Cancel
-                                    </button>
-                                    <button
-                                        disabled={isLoading}
-                                        className="flex items-center gap-2 px-8 py-2 bg-accent text-white rounded-lg font-bold hover:opacity-90 disabled:opacity-50 transition-all shadow-lg shadow-accent/20"
-                                    >
-                                        {isLoading ? (
-                                            <>
-                                                <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                                                Saving...
-                                            </>
-                                        ) : (
-                                            <>
-                                                <Save size={18} />
-                                                Save Content
-                                            </>
-                                        )}
-                                    </button>
                                 </div>
                             </form>
+
+                            <div className="p-6 border-t border-border bg-card flex justify-between items-center">
+                                <span className="text-xs text-muted-foreground font-medium italic">Save often to prevent loss.</span>
+                                <div className="flex gap-3">
+                                    <button onClick={closeModal} className="px-6 py-2 border rounded-xl font-bold text-sm">Dismiss</button>
+                                    <button onClick={handleSave} disabled={saveMutation.isPending} className="px-10 py-2 bg-accent text-white rounded-xl font-black text-sm hover:opacity-90 shadow-lg shadow-accent/20 flex items-center gap-2">
+                                        {saveMutation.isPending ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving</> : <><Save size={18} /> Publish Story</>}
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                 )}
-            </section>
+                </>
+                ) : (
+                    <AdminCertificateTable isLoggedIn={isLoggedIn} />
+                )}
+            </div>
         </Layout>
     );
 };

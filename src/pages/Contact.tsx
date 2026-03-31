@@ -1,8 +1,9 @@
 import Layout from "@/components/Layout";
 import { Link } from "react-router-dom";
 import { useState } from "react";
-import { Mail, Phone, MapPin } from "lucide-react";
+import { Mail, Phone, MapPin, Loader2 } from "lucide-react";
 import { useToast } from "@/components/ui/use-toast";
+import { supabase } from "@/lib/supabase";
 
 const Contact = () => {
   const { toast } = useToast();
@@ -12,19 +13,50 @@ const Contact = () => {
     subject: "",
     message: ""
   });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     setFormData(prev => ({ ...prev, [name]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    toast({
-      title: "Message sent!",
-      description: "We'll get back to you as soon as possible.",
-    });
-    setFormData({ name: "", email: "", subject: "", message: "" });
+    setIsSubmitting(true);
+    
+    try {
+        console.log("Submitting contact form with payload:", formData);
+        const { data, error } = await supabase.functions.invoke('resend-email', {
+            body: formData,
+        });
+
+        // 1. Check for transport level error (CORS, network, etc.)
+        if (error) {
+            console.error("Supabase transport error:", error);
+            throw new Error(error.message || "Failed to reach email service");
+        }
+
+        // 2. Check for logic level error (Validation, Resend failure)
+        if (data && data.success === false) {
+            console.error("Function service error:", data.error);
+            throw new Error(data.error || "Failed to process email");
+        }
+
+        toast({
+            title: "Message sent successfully!",
+            description: "We'll get back to you as soon as possible.",
+        });
+        setFormData({ name: "", email: "", subject: "", message: "" });
+    } catch (err: any) {
+        console.error("Submission failed:", err.message);
+        toast({
+            variant: "destructive",
+            title: "Failed to send message",
+            description: err.message || "Something went wrong. Please try again later.",
+        });
+    } finally {
+        setIsSubmitting(false);
+    }
   };
 
   return (
@@ -50,7 +82,7 @@ const Contact = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-lg mb-1">Email</h3>
-                  <p className="text-muted-foreground">hello@uyarcha.com</p>
+                  <p className="text-muted-foreground">uyarchatech@gmail.com</p>
                   <p className="text-sm text-muted-foreground mt-1">We typically respond within 1-2 business days.</p>
                 </div>
               </div>
@@ -61,7 +93,7 @@ const Contact = () => {
                 </div>
                 <div>
                   <h3 className="font-bold text-lg mb-1">Location</h3>
-                  <p className="text-muted-foreground">New York, NY<br />United States</p>
+                  <p className="text-muted-foreground">Thrissur, Kerala, India</p>
                 </div>
               </div>
 
@@ -127,9 +159,17 @@ const Contact = () => {
 
                 <button
                   type="submit"
-                  className="w-full py-3 px-6 rounded-lg bg-accent text-accent-foreground font-medium hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background"
+                  disabled={isSubmitting}
+                  className="w-full py-3 px-6 rounded-lg bg-accent text-accent-foreground font-medium hover:opacity-90 transition-opacity focus:outline-none focus:ring-2 focus:ring-accent focus:ring-offset-2 focus:ring-offset-background disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 >
-                  Send Message
+                  {isSubmitting ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      Sending...
+                    </>
+                  ) : (
+                    "Send Message"
+                  )}
                 </button>
                 <p className="text-xs text-center text-muted-foreground mt-4">
                   For information on how we handle your data, please see our <Link to="/privacy-policy" className="hover:text-accent underline">Privacy Policy</Link>.

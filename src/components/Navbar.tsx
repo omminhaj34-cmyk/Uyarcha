@@ -1,7 +1,7 @@
 import { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, NavLink } from "react-router-dom";
 import { Menu, X, Search } from "lucide-react";
-import { categories } from "@/data/articles";
+import { categories } from "@/lib/constants";
 
 const Navbar = () => {
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -24,6 +24,7 @@ const Navbar = () => {
           {categories.slice(0, 4).map(cat => (
             <Link key={cat} to={`/blog?category=${cat}`} className="text-sm font-medium text-muted-foreground hover:text-accent transition-colors">{cat}</Link>
           ))}
+          <NavLink to="/certificates" className={({ isActive }) => `text-sm font-medium transition-colors hover:text-accent ${isActive ? 'text-accent' : 'text-foreground'}`}>Certificates</NavLink>
           <Link to="/about" className="text-sm font-medium text-foreground hover:text-accent transition-colors">About</Link>
           <Link to="/contact" className="text-sm font-medium text-foreground hover:text-accent transition-colors">Contact</Link>
           <Link to="/privacy-policy" className="text-sm font-medium text-foreground hover:text-accent transition-colors">Privacy Policy</Link>
@@ -64,6 +65,7 @@ const Navbar = () => {
             {categories.map(cat => (
               <Link key={cat} to={`/blog?category=${cat}`} onClick={() => setMobileOpen(false)} className="text-sm py-2 text-muted-foreground pl-3">{cat}</Link>
             ))}
+            <NavLink to="/certificates" onClick={() => setMobileOpen(false)} className={({ isActive }) => `text-sm font-medium py-2 ${isActive ? 'text-accent' : 'text-foreground'}`}>Certificates</NavLink>
             <Link to="/about" onClick={() => setMobileOpen(false)} className="text-sm font-medium py-2 text-foreground">About</Link>
             <Link to="/contact" onClick={() => setMobileOpen(false)} className="text-sm font-medium py-2 text-foreground">Contact</Link>
             <Link to="/privacy-policy" onClick={() => setMobileOpen(false)} className="text-sm font-medium py-2 text-foreground">Privacy Policy</Link>

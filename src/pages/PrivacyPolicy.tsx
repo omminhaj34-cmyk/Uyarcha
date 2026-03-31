@@ -5,70 +5,83 @@ const PrivacyPolicy = () => {
   return (
     <Layout>
       <section className="container py-12 md:py-20 animate-fade-in">
-        <div className="max-w-3xl mx-auto prose prose-neutral dark:prose-invert lg:prose-lg">
+        <div className="max-w-3xl mx-auto prose prose-neutral dark:prose-invert lg:prose-lg text-sm md:text-base">
           <nav className="text-sm text-muted-foreground mb-8 not-prose">
             <Link to="/" className="hover:text-accent transition-colors">Home</Link>
             <span className="mx-2">/</span>
             <span className="text-foreground font-medium">Privacy Policy</span>
           </nav>
 
-          <h1 className="font-display text-4xl md:text-5xl font-bold mb-8">Privacy Policy</h1>
+          <h1 className="font-display text-4xl md:text-5xl font-bold mb-8">Data Privacy Commitment</h1>
 
-
-          <p className="lead text-xl text-muted-foreground mb-8">
-            At <strong>Uyarcha</strong>, accessible from our website, one of our main priorities is the privacy of our visitors. This Privacy Policy document contains types of information that is collected and recorded by Uyarcha and how we use it.
+          <p className="lead text-lg text-muted-foreground mb-12">
+            At <strong>Uyarcha</strong>, protecting your intellectual privacy is a core component of our organizational DNA. This Privacy Policy outlines the specific types of information we collect, the rigorous security protocols we employ, and how we utilize your data to enhance your technical learning experience.
           </p>
 
+          <h2 className="text-2xl font-bold mt-12 mb-6 border-b border-border pb-2">1. Data Architecture & Collection</h2>
           <p>
-            If you have additional questions or require more information about our Privacy Policy, do not hesitate to <Link to="/contact">contact us</Link>.
+            We collect data only by fair and lawful means, with your explicit knowledge and consent, to provide you with high-quality services.
           </p>
-
-          <h2 className="text-2xl font-bold mt-10 mb-4">1. Data We Collect</h2>
-          <p>
-            We only ask for personal information when we truly need it to provide a service to you. For instance, when you submit a contact form or sign up for our newsletter. We collect it by fair and lawful means, with your knowledge and consent.
-          </p>
-          <p>
-            We may collect:
-          </p>
-          <ul className="list-disc pl-6 space-y-2 my-4">
-            <li>Name and Email address (if provided in our contact form or newsletter).</li>
-            <li>Usage Data (such as your IP address, browser type, and time spent on specific pages).</li>
+          <ul className="list-disc pl-6 space-y-3 my-6">
+            <li>
+                <strong>Direct Input:</strong> This includes your name and email address when you voluntarily submit our contact form or subscribe to our newsletter.
+            </li>
+            <li>
+                <strong>Anonymized Usage Analytics:</strong> We aggregate metadata such as browser type, time spent on specific tutorials, and general location data (e.g., city/country) to optimize platform performance.
+            </li>
+            <li>
+                <strong>Session Identifiers:</strong> Minimal cookie-based data is stored to maintain login sessions and user preferences.
+            </li>
           </ul>
 
-          <h2 className="text-2xl font-bold mt-10 mb-4">2. Google AdSense and Cookies</h2>
+          <h2 className="text-2xl font-bold mt-12 mb-6 border-b border-border pb-2">2. Utilization of Information</h2>
           <p>
-            Google, as a third-party vendor, uses cookies to serve ads on our site. Google's use of the DART cookie enables it to serve ads to our users based on previous visits to our site and other sites on the internet.
+            The data we collect is utilized strictly for the following operational purposes:
           </p>
+          <ul className="list-disc pl-6 space-y-2 my-4">
+            <li>To personalize and refine tech-learning content.</li>
+            <li>To facilitate rapid and accurate responses to your support inquiries.</li>
+            <li>To conduct security monitoring and mitigate potential unauthorized system access.</li>
+            <li>To analyze platform uptime and performance bottlenecks.</li>
+          </ul>
+
+          <h2 className="text-2xl font-bold mt-12 mb-6 border-b border-border pb-2">3. Third-Party Integrations</h2>
           <p>
-            Our advertising partners may use cookies and web beacons on our site. Our advertising partners include Google AdSense.
+            Uyarcha collaborates with a limited number of industry-leading service providers to maintain our technical infrastructure. These third parties are bound by strict data processing agreements:
           </p>
+          <ul className="list-disc pl-6 space-y-2 my-4">
+            <li><strong>Supabase:</strong> Provides our encrypted database and secure authentication services.</li>
+            <li><strong>Resend:</strong> Manages our robust and secure email delivery infrastructure.</li>
+            <li><strong>Analytics Providers:</strong> Aggregate data for performance monitoring and user behavioral analysis.</li>
+            <li><strong>Certificate Providers:</strong> Integrated links for verifiable achievement tracking.</li>
+          </ul>
+
+          <h2 className="text-2xl font-bold mt-12 mb-6 border-b border-border pb-2">4. Data Governance & Security</h2>
           <p>
-            These third-party ad servers or ad networks use technology in their respective advertisements and links that appear on Uyarcha and which are sent directly to your browser. They automatically receive your IP address when this occurs. Other technologies (such as cookies, JavaScript, or Web Beacons) may also be used by our site's third-party ad networks to measure the effectiveness of their advertising campaigns and/or to personalize the advertising content that you see on the site.
-          </p>
-          <p>
-            Uyarcha has no access to or control over these cookies that are used by third-party advertisers.
+            We maintain the highest standards of data governance. Under no circumstances do we sell, trade, or rent your personally identifiable information to third parties for marketing purposes. All data is stored using commercially acceptable, encrypted methods through our distributed database providers to ensure protection against unauthorized access.
           </p>
 
-          <h2 className="text-2xl font-bold mt-10 mb-4">3. Third-Party Privacy Policies</h2>
+          <h2 className="text-2xl font-bold mt-12 mb-6 border-b border-border pb-2">5. User Agency & Rights</h2>
           <p>
-            Uyarcha's Privacy Policy does not apply to other advertisers or websites. Thus, we are advising you to consult the respective Privacy Policies of these third-party ad servers for more detailed information. It may include their practices and instructions about how to opt-out of certain options. You can choose to disable cookies through your individual browser options.
+            We believe you should have complete agency over your digital footprint. As a Uyarcha user, you have the right to:
           </p>
+          <ul className="list-disc pl-6 space-y-2 my-4">
+             <li>Request a copy of the data we have currently stored.</li>
+             <li>Request the immediate and permanent deletion of your personal account data.</li>
+             <li>Opt-out of optional analytics tracking through your browser settings.</li>
+          </ul>
 
-          <h2 className="text-2xl font-bold mt-10 mb-4">4. User Data Protection</h2>
+          <h2 className="text-2xl font-bold mt-12 mb-6 border-b border-border pb-2">6. Contact Data</h2>
           <p>
-            We highly value your trust in providing us your Personal Information, thus we are striving to use commercially acceptable means of protecting it. But remember that no method of transmission over the internet, or method of electronic storage is 100% secure and reliable, and we cannot guarantee its absolute security.
+            If you have additional questions regarding our data privacy practices or require more information about our technical infrastructure, please do not hesitate to contact our technical team:
           </p>
-          <p>
-            We do not share any personally identifying information publicly or with third-parties, except when required to by law.
-          </p>
+          <div className="p-6 bg-secondary/30 rounded-2xl border border-border mt-6">
+             <span className="block font-bold">Email:</span>
+             <a href="mailto:contact@uyarcha.tech" className="text-accent hover:underline break-words">contact@uyarcha.tech</a>
+          </div>
 
-          <h2 className="text-2xl font-bold mt-10 mb-4">5. Contact Information</h2>
-          <p>
-            If you have any questions about this Privacy Policy, please contact us via our <Link to="/contact">contact page</Link> or directly at <a href="mailto:hello@uyarcha.com" className="text-accent hover:underline">hello@uyarcha.com</a>.
-          </p>
-
-          <p className="text-sm text-muted-foreground mt-12 pt-6 border-t border-border">
-            Last Updated: March 8, 2026
+          <p className="text-xs text-muted-foreground mt-16 pt-6 border-t border-border italic text-center">
+            Protocol Version: 2.1.0 • Last Updated: April 1, 2026
           </p>
         </div>
       </section>

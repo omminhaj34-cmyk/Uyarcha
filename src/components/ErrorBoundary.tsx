@@ -2,6 +2,7 @@ import { Component, ErrorInfo, ReactNode } from "react";
 
 interface Props {
     children?: ReactNode;
+    fallback?: ReactNode;
 }
 
 interface State {
@@ -23,7 +24,7 @@ export class ErrorBoundary extends Component<Props, State> {
 
     public render() {
         if (this.state.hasError) {
-            return (
+            return this.props.fallback || (
                 <div className="flex flex-col items-center justify-center min-h-screen bg-background text-foreground text-center px-4">
                     <h1 className="text-4xl font-bold mb-4 text-red-500">Oops, something went wrong.</h1>
                     <p className="text-muted-foreground mb-8 text-lg">
