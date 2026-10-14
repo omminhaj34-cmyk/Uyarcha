@@ -109,12 +109,16 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
         console.error("MFA factor listing error:", factorErr);
       }
 
-      const verifiedFactors = factorData?.totp?.filter(
+      const allTotp = factorData?.totp || [];
+      const verifiedFactors = allTotp.filter(
         (f) => f.status === "verified"
+      );
+      const unverifiedFactors = allTotp.filter(
+        (f) => f.status === "unverified"
       );
 
       if (verifiedFactors && verifiedFactors.length > 0) {
-        // User has enrolled TOTP
+        // User has verified TOTP
         if (aalData?.currentLevel === "aal2") {
           // AAL2 already achieved
           setAuthState("authenticated");
@@ -124,17 +128,25 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
           setAuthState("verifying_mfa");
         }
       } else {
-        // User has not enrolled TOTP yet -> start enrollment
+        // Clean up any stale unverified factors before enrolling
+        for (const unverified of unverifiedFactors) {
+          try {
+            await supabase.auth.mfa.unenroll({ factorId: unverified.id });
+          } catch (unenrollErr) {
+            console.warn("Could not unenroll stale factor:", unenrollErr);
+          }
+        }
+
+        // Start fresh enrollment with unique friendly name
         const { data: enrollData, error: enrollErr } =
           await supabase.auth.mfa.enroll({
             factorType: "totp",
             issuer: "Uyarcha",
-            friendlyName: "Admin Authenticator",
+            friendlyName: `Admin Authenticator ${Date.now().toString().slice(-4)}`,
           });
 
         if (enrollErr || !enrollData) {
           console.error("MFA enrollment setup failed:", enrollErr);
-          // If enrollment fails due to project settings, notify
           setErrorMessage(
             "MFA enrollment required: " +
               (enrollErr?.message || "Unable to initialize TOTP")
