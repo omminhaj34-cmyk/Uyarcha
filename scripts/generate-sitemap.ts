@@ -59,6 +59,8 @@ async function generate() {
     { loc: `${DOMAIN}/about`, priority: "0.7", changefreq: "monthly" },
     { loc: `${DOMAIN}/contact`, priority: "0.6", changefreq: "monthly" },
     { loc: `${DOMAIN}/certificates`, priority: "0.6", changefreq: "monthly" },
+    { loc: `${DOMAIN}/jobs`, priority: "0.7", changefreq: "weekly" },
+    { loc: `${DOMAIN}/internship`, priority: "0.7", changefreq: "weekly" },
     { loc: `${DOMAIN}/privacy-policy`, priority: "0.4", changefreq: "yearly" },
   ]
 

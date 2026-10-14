@@ -67,6 +67,16 @@ async function prerender() {
       title: "Certificates & Achievements | Uyarcha",
       description: "Verifiable certificates and professional technical credentials.",
     },
+    {
+      route: "/jobs",
+      title: "Jobs - Tech & Engineering Careers | Uyarcha",
+      description: "Explore tech job openings, engineering roles, and career opportunities at Uyarcha.",
+    },
+    {
+      route: "/internship",
+      title: "Internships & Career Training | Uyarcha",
+      description: "Accelerate your engineering journey with hands-on technical internships and mentorship programs at Uyarcha.",
+    },
   ];
 
   // Fetch published articles from Supabase to prerender individual article pages

@@ -23,6 +23,8 @@ const PrivacyPolicy = React.lazy(() => import("./pages/PrivacyPolicy"));
 const Admin = React.lazy(() => import("./pages/Admin"));
 const NotFound = React.lazy(() => import("./pages/NotFound"));
 const Certificates = React.lazy(() => import("@/pages/Certificates"));
+const Jobs = React.lazy(() => import("@/pages/Jobs"));
+const Internship = React.lazy(() => import("@/pages/Internship"));
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -119,6 +121,9 @@ function App() {
                     }
                   />
                   <Route path="/certificates" element={<Certificates />} />
+                  <Route path="/jobs" element={<Jobs />} />
+                  <Route path="/internship" element={<Internship />} />
+                  <Route path="/internships" element={<Internship />} />
                   <Route path="*" element={<NotFound />} />
                 </Routes>
                 <CookieConsent />
