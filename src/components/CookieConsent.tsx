@@ -1,26 +1,18 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router-dom";
-import { Cookie, Shield, Check, X } from "lucide-react";
+import { Cookie, Check } from "lucide-react";
+import {
+  getCookieConsent,
+  setCookieConsent,
+  REOPEN_CONSENT_EVENT,
+} from "@/lib/cookieConsent";
 
-export const CONSENT_STORAGE_KEY = "uyarcha_cookie_consent";
-export const CONSENT_EVENT = "uyarcha_consent_changed";
-
-export function getCookieConsent(): "accepted" | "declined" | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(CONSENT_STORAGE_KEY) as "accepted" | "declined" | null;
-}
-
-export function setCookieConsent(status: "accepted" | "declined") {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(CONSENT_STORAGE_KEY, status);
-  window.dispatchEvent(new CustomEvent(CONSENT_EVENT, { detail: status }));
-}
 
 /**
  * CookieConsent: Responsive consent banner.
- * NOTE: For full EEA/UK GDPR compliance with Google AdSense, Google mandates
- * using a Google-certified CMP integrated with the IAB TCF (e.g. Google's free CMP
- * available directly in the AdSense Dashboard > Privacy & messaging).
+ * Allows users to choose between essential-only cookies or accepting advertising/performance cookies.
+ * Note: For publishers serving ads to EEA, UK, and Swiss users, Google requires using a
+ * Google-certified CMP integrated with the IAB TCF (configurable via Google AdSense > Privacy & messaging).
  */
 export const CookieConsent = () => {
   const [isVisible, setIsVisible] = useState(false);
@@ -28,10 +20,17 @@ export const CookieConsent = () => {
   useEffect(() => {
     const consent = getCookieConsent();
     if (!consent) {
-      // Small delay for smooth entry
+      // Small delay for smooth entry on first visit
       const timer = setTimeout(() => setIsVisible(true), 1200);
       return () => clearTimeout(timer);
     }
+  }, []);
+
+  // Listen for manual requests to re-open privacy settings
+  useEffect(() => {
+    const handleReopen = () => setIsVisible(true);
+    window.addEventListener(REOPEN_CONSENT_EVENT, handleReopen);
+    return () => window.removeEventListener(REOPEN_CONSENT_EVENT, handleReopen);
   }, []);
 
   const handleAccept = () => {
@@ -58,9 +57,9 @@ export const CookieConsent = () => {
             <Cookie size={20} />
           </div>
           <div className="space-y-1">
-            <h3 className="text-sm font-bold tracking-tight">We value your privacy</h3>
+            <h3 className="text-sm font-bold tracking-tight text-foreground">Cookie & Privacy Preferences</h3>
             <p className="text-xs text-muted-foreground leading-relaxed">
-              Uyarcha and our partners use cookies to enhance navigation, analyze site performance, and serve relevant advertisements via Google AdSense.
+              Uyarcha uses essential storage for site operation and security. When enabled, third-party advertising partners such as Google AdSense may use cookies to serve relevant advertisements.
             </p>
           </div>
         </div>
@@ -74,12 +73,14 @@ export const CookieConsent = () => {
           </Link>
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={handleDecline}
-              className="px-3 py-1.5 rounded-lg border border-border text-xs font-semibold hover:bg-muted transition-colors"
+              className="px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-foreground hover:bg-muted transition-colors"
             >
               Essential Only
             </button>
             <button
+              type="button"
               onClick={handleAccept}
               className="px-4 py-1.5 rounded-lg bg-accent text-accent-foreground text-xs font-bold hover:opacity-90 shadow-md shadow-accent/20 transition-all flex items-center gap-1.5"
             >

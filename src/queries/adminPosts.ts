@@ -26,5 +26,15 @@ export async function getPostContentForAdmin(id: string) {
       .maybeSingle();
     
     const { success, data } = await safeQuery<any>(query);
-    return success ? data : null;
+    if (!success) {
+      // Resilient fallback in case optional SEO columns are pending migration
+      const fallbackQuery = supabase
+        .from("posts")
+        .select("content, excerpt, seo_description")
+        .eq("id", id)
+        .maybeSingle();
+      const fallbackRes = await safeQuery<any>(fallbackQuery);
+      return fallbackRes.success ? fallbackRes.data : null;
+    }
+    return data || null;
 }

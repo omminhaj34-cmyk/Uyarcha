@@ -3,7 +3,7 @@ import { Helmet } from "react-helmet-async";
 import { supabase } from "@/lib/supabase";
 import Layout from "@/components/Layout";
 import { toast } from "sonner";
-import { ShieldCheck, Lock, Mail, Key, AlertCircle, Loader2, QrCode, LogOut } from "lucide-react";
+import { ShieldCheck, Lock, Mail, Key, AlertCircle, Loader2, QrCode, LogOut, RefreshCw } from "lucide-react";
 
 interface ProtectedRouteProps {
   children: React.ReactNode;
@@ -21,6 +21,17 @@ type AuthState =
 const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 const MAX_LOGIN_ATTEMPTS = 5;
 const LOCKOUT_DURATION_MS = 30 * 1000; // 30 seconds
+
+// Safe diagnostic logging helpers (never log credentials or tokens)
+const logAuth = (stage: string, details?: any) => {
+  if (import.meta.env.DEV) {
+    console.log(`[AdminAuth] ${stage}`, details !== undefined ? details : "");
+  }
+};
+
+const logAuthError = (stage: string, error?: any) => {
+  console.error(`[AdminAuth] ${stage}`, error?.message || error || "");
+};
 
 const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProps) => {
   const [authState, setAuthState] = useState<AuthState>("checking");
@@ -45,6 +56,12 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
   // Inactivity tracking
   const lastActivityRef = useRef(Date.now());
 
+  // Guards against concurrent / stale async operations
+  const isMountedRef = useRef(true);
+  const verifyingRef = useRef(false);
+  const isAccessDeniedRef = useRef(false);
+  const authSeqRef = useRef(0);
+
   // Handle client-side lockout countdown
   useEffect(() => {
     let interval: NodeJS.Timeout | null = null;
@@ -60,53 +77,91 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
 
   // Sign out helper
   const handleSignOut = useCallback(async (reason?: string) => {
+    logAuth("Signing out user");
+    isAccessDeniedRef.current = false;
     try {
       await supabase.auth.signOut();
-    } catch {
-      // ignore
+    } catch (err) {
+      logAuthError("Error during sign out:", err);
     }
-    setAuthState("unauthenticated");
-    setMfaFactorId(null);
-    setMfaQrCode(null);
-    setMfaSecret(null);
-    setTotpCode("");
-    if (reason) {
-      toast.info(reason);
+    if (isMountedRef.current) {
+      setAuthState("unauthenticated");
+      setErrorMessage(null);
+      setMfaFactorId(null);
+      setMfaQrCode(null);
+      setMfaSecret(null);
+      setTotpCode("");
+      if (reason) {
+        toast.info(reason);
+      }
     }
   }, []);
 
-  // Ref to prevent duplicate concurrent verification
-  const verifyingRef = useRef(false);
-
   // Check user role in public.profiles and evaluate MFA assurance level
-  const verifyAccessAndMfa = useCallback(async (userId: string) => {
-    if (verifyingRef.current) return;
+  const verifyAccessAndMfa = useCallback(async (userId: string, seq: number) => {
+    if (verifyingRef.current) {
+      logAuth("Verification already in progress, skipping duplicate call");
+      return;
+    }
     verifyingRef.current = true;
 
     try {
-      // 1. Fetch role strictly from public.profiles (not auth.users)
+      logAuth("Beginning role verification for userId:", userId);
+
+      // 1. Fetch role strictly from public.profiles
       const { data: profile, error: profileErr } = await supabase
         .from("profiles")
         .select("id, role")
         .eq("id", userId)
         .maybeSingle();
 
-      if (profileErr || !profile || profile.role !== requiredRole) {
+      if (!isMountedRef.current || seq !== authSeqRef.current) return;
+
+      if (profileErr) {
+        logAuthError("Profile query failed with error:", profileErr);
+        isAccessDeniedRef.current = true;
         setErrorMessage(
-          "Access Denied: Your account does not have administrator privileges."
+          `Database authorization query failed: ${profileErr.message}. Verify that the public.profiles table exists and RLS policies allow SELECT for authenticated users.`
         );
         setAuthState("access_denied");
         await supabase.auth.signOut();
         return;
       }
 
+      if (!profile) {
+        logAuthError("No public.profiles record found for user:", userId);
+        isAccessDeniedRef.current = true;
+        setErrorMessage(
+          "Access Denied: Your account authenticated successfully, but no administrator profile was found in public.profiles. An authorized database administrator must assign the 'admin' role in Supabase."
+        );
+        setAuthState("access_denied");
+        await supabase.auth.signOut();
+        return;
+      }
+
+      if (profile.role !== requiredRole) {
+        logAuthError("Role mismatch:", { actual: profile.role, required: requiredRole });
+        isAccessDeniedRef.current = true;
+        setErrorMessage(
+          `Access Denied: Your account role is '${profile.role || "unknown"}', but '${requiredRole}' privileges are required to access the Admin Portal.`
+        );
+        setAuthState("access_denied");
+        await supabase.auth.signOut();
+        return;
+      }
+
+      logAuth("Administrator authorization confirmed for user:", userId);
+      isAccessDeniedRef.current = false;
+      setErrorMessage(null);
+
       // 2. Multi-Factor Authentication (AAL2 Check)
       let aalData: any = null;
       try {
         const res = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
         aalData = res.data;
+        logAuth("MFA Assurance Level:", aalData?.currentLevel);
       } catch (e) {
-        console.warn("AAL check skipped:", e);
+        logAuthError("AAL check skipped:", e);
       }
 
       let factorData: any = null;
@@ -114,8 +169,10 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
         const res = await supabase.auth.mfa.listFactors();
         factorData = res.data;
       } catch (e) {
-        console.warn("List factors skipped:", e);
+        logAuthError("List factors error:", e);
       }
+
+      if (!isMountedRef.current || seq !== authSeqRef.current) return;
 
       const allFactors: any[] = factorData?.all || factorData?.totp || [];
       const totpFactors = allFactors.filter((f: any) => f.factor_type === "totp" || !f.factor_type);
@@ -123,10 +180,12 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
       const unverifiedFactors = totpFactors.filter((f: any) => f.status === "unverified");
 
       if (verifiedFactors && verifiedFactors.length > 0) {
-        // User has verified TOTP
+        // User has already enrolled and verified TOTP
         if (aalData?.currentLevel === "aal2") {
+          logAuth("AAL2 already achieved. Access granted.");
           setAuthState("authenticated");
         } else {
+          logAuth("AAL1 session: prompting for TOTP code challenge.");
           setMfaFactorId(verifiedFactors[0].id);
           setAuthState("verifying_mfa");
         }
@@ -136,11 +195,12 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
           try {
             await supabase.auth.mfa.unenroll({ factorId: unverified.id });
           } catch {
-            // ignore
+            // ignore cleanup errors
           }
         }
 
         // Start fresh enrollment with unique friendly name
+        logAuth("Enrolling new TOTP authenticator factor...");
         try {
           const { data: enrollData, error: enrollErr } =
             await supabase.auth.mfa.enroll({
@@ -149,71 +209,97 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
               friendlyName: `Admin Authenticator ${Date.now().toString().slice(-4)}`,
             });
 
+          if (!isMountedRef.current || seq !== authSeqRef.current) return;
+
           if (enrollErr || !enrollData) {
-            console.warn("MFA enrollment not available, granting authenticated access:", enrollErr?.message);
-            setAuthState("authenticated");
+            logAuthError("MFA enrollment setup failed:", enrollErr);
+            isAccessDeniedRef.current = true;
+            setErrorMessage(
+              "MFA enrollment required: " +
+                (enrollErr?.message || "Unable to initialize TOTP authenticator.")
+            );
+            setAuthState("access_denied");
+            await supabase.auth.signOut();
           } else {
+            logAuth("MFA enrollment QR generated. Transitioning to enrolling_mfa.");
             setMfaFactorId(enrollData.id);
             setMfaQrCode(enrollData.totp.qr_code);
             setMfaSecret(enrollData.totp.secret);
             setAuthState("enrolling_mfa");
           }
-        } catch (enrollException) {
-          console.warn("MFA enroll exception, proceeding:", enrollException);
-          setAuthState("authenticated");
+        } catch (enrollException: any) {
+          logAuthError("MFA enroll exception:", enrollException);
+          isAccessDeniedRef.current = true;
+          setErrorMessage(
+            "MFA enrollment failure: " + (enrollException?.message || "Unexpected enrollment error.")
+          );
+          setAuthState("access_denied");
+          await supabase.auth.signOut();
         }
       }
     } catch (err: any) {
-      console.error("Auth verification error:", err);
-      setErrorMessage(err.message || "Failed to verify administrator privileges.");
-      setAuthState("unauthenticated");
+      logAuthError("Auth verification unexpected error:", err);
+      if (isMountedRef.current && seq === authSeqRef.current) {
+        setErrorMessage(err.message || "Failed to verify administrator privileges.");
+        setAuthState("unauthenticated");
+      }
     } finally {
       verifyingRef.current = false;
+      if (isMountedRef.current) {
+        setIsSubmitting(false);
+      }
     }
   }, [requiredRole]);
 
-  // Initial session check and auth change listener
+  // Session check and auth change listener
   useEffect(() => {
-    let mounted = true;
-
-    const checkSession = async () => {
-      try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error("Session check timed out")), 6000)
-        );
-        const sessionPromise = supabase.auth.getSession();
-
-        const result: any = await Promise.race([sessionPromise, timeoutPromise]);
-        const session = result?.data?.session;
-
-        if (!mounted) return;
-
-        if (!session) {
-          setAuthState("unauthenticated");
-        } else {
-          await verifyAccessAndMfa(session.user.id);
-        }
-      } catch (err) {
-        console.warn("Session check error or timeout:", err);
-        if (mounted) setAuthState("unauthenticated");
-      }
-    };
-
-    checkSession();
+    isMountedRef.current = true;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        if (!mounted) return;
+        logAuth("Auth state change event received:", event);
+        if (!isMountedRef.current) return;
+
         if (event === "SIGNED_OUT" || !session) {
-          setAuthState("unauthenticated");
-        } else if (event === "SIGNED_IN" || event === "TOKEN_REFRESHED") {
-          await verifyAccessAndMfa(session.user.id);
+          // If sign out was caused by access denial, preserve the access_denied state and message
+          if (isAccessDeniedRef.current) {
+            logAuth("Preserving access_denied state after sign-out event");
+            setAuthState("access_denied");
+          } else {
+            setAuthState("unauthenticated");
+          }
+        } else if (
+          event === "INITIAL_SESSION" ||
+          event === "SIGNED_IN" ||
+          event === "TOKEN_REFRESHED" ||
+          event === "USER_UPDATED"
+        ) {
+          const seq = ++authSeqRef.current;
+          await verifyAccessAndMfa(session.user.id, seq);
         }
       }
     );
 
+    // Initial session fallback check only if still checking
+    const initFallback = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!isMountedRef.current) return;
+        if (!session && !isAccessDeniedRef.current) {
+          setAuthState((current) => (current === "checking" ? "unauthenticated" : current));
+        }
+      } catch (err) {
+        logAuthError("Initial getSession error:", err);
+        if (isMountedRef.current && !isAccessDeniedRef.current) {
+          setAuthState((current) => (current === "checking" ? "unauthenticated" : current));
+        }
+      }
+    };
+
+    initFallback();
+
     return () => {
-      mounted = false;
+      isMountedRef.current = false;
       subscription.unsubscribe();
     };
   }, [verifyAccessAndMfa]);
@@ -244,18 +330,23 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
   // Handle email/password login submission
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (lockoutTimer > 0) return;
+    if (isSubmitting || lockoutTimer > 0) return;
 
+    isAccessDeniedRef.current = false;
     setErrorMessage(null);
     setIsSubmitting(true);
 
+    const cleanEmail = email.trim();
+    logAuth("Submitting login form for:", cleanEmail);
+
     try {
       const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
+        email: cleanEmail,
         password,
       });
 
       if (error) {
+        logAuthError("signInWithPassword failed:", error);
         const nextFailures = failedAttempts + 1;
         setFailedAttempts(nextFailures);
 
@@ -266,23 +357,41 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
             "Too many failed login attempts. Locked out for 30 seconds."
           );
         } else {
-          setErrorMessage(
-            `${error.message} (${MAX_LOGIN_ATTEMPTS - nextFailures} attempts remaining)`
-          );
+          // Provide distinct, actionable error descriptions
+          if (error.message.includes("Invalid login credentials")) {
+            setErrorMessage(
+              `Invalid email or password. Please verify your administrator credentials. (${MAX_LOGIN_ATTEMPTS - nextFailures} attempts remaining)`
+            );
+          } else if (error.message.includes("Email not confirmed")) {
+            setErrorMessage(
+              "Email not confirmed. Please confirm your email address in Supabase Auth before signing in."
+            );
+          } else if (error.status === 0 || error.message.toLowerCase().includes("fetch") || error.message.toLowerCase().includes("network")) {
+            setErrorMessage(
+              "Unable to reach the Supabase authentication service. Please check your network connection and Supabase URL."
+            );
+          } else {
+            setErrorMessage(
+              `${error.message} (${MAX_LOGIN_ATTEMPTS - nextFailures} attempts remaining)`
+            );
+          }
         }
         setIsSubmitting(false);
         return;
       }
 
-      // Successful login reset
+      // Successful password validation
+      logAuth("Password sign in succeeded. Awaiting role authorization...");
       setFailedAttempts(0);
       setLockoutTimer(0);
+
       if (data.user) {
-        await verifyAccessAndMfa(data.user.id);
+        const seq = ++authSeqRef.current;
+        await verifyAccessAndMfa(data.user.id, seq);
       }
     } catch (err: any) {
+      logAuthError("Unexpected login exception:", err);
       setErrorMessage(err.message || "An unexpected error occurred during sign in.");
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -290,10 +399,11 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
   // Verify existing TOTP code challenge
   const handleVerifyTotp = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mfaFactorId || !totpCode.trim()) return;
+    if (!mfaFactorId || !totpCode.trim() || isVerifyingMfa) return;
 
     setIsVerifyingMfa(true);
     setErrorMessage(null);
+    logAuth("Submitting TOTP verification code for factor:", mfaFactorId);
 
     try {
       const { data: challenge, error: challengeErr } =
@@ -313,23 +423,27 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
         throw verifyErr;
       }
 
+      logAuth("MFA challenge verified successfully. Access granted.");
       toast.success("MFA authentication successful");
       setAuthState("authenticated");
     } catch (err: any) {
-      console.error("TOTP verification error:", err);
-      setErrorMessage(err.message || "Invalid or expired verification code.");
+      logAuthError("TOTP verification error:", err);
+      setErrorMessage(err.message || "Invalid or expired verification code. Please try again.");
     } finally {
-      setIsVerifyingMfa(false);
+      if (isMountedRef.current) {
+        setIsVerifyingMfa(false);
+      }
     }
   };
 
   // Confirm new TOTP enrollment
   const handleConfirmEnrollment = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!mfaFactorId || !totpCode.trim()) return;
+    if (!mfaFactorId || !totpCode.trim() || isVerifyingMfa) return;
 
     setIsVerifyingMfa(true);
     setErrorMessage(null);
+    logAuth("Confirming TOTP enrollment for factor:", mfaFactorId);
 
     try {
       const { error: verifyErr } = await supabase.auth.mfa.challengeAndVerify({
@@ -341,19 +455,37 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
         throw verifyErr;
       }
 
+      logAuth("MFA factor successfully activated. Access granted.");
       toast.success("MFA TOTP successfully enrolled and activated!");
       setAuthState("authenticated");
     } catch (err: any) {
-      console.error("MFA enrollment verification error:", err);
+      logAuthError("MFA enrollment verification error:", err);
       setErrorMessage(
-        err.message || "Failed to verify authenticator code. Please try again."
+        err.message || "Failed to verify authenticator code. Please check the code and try again."
       );
     } finally {
-      setIsVerifyingMfa(false);
+      if (isMountedRef.current) {
+        setIsVerifyingMfa(false);
+      }
     }
   };
 
-  // 1. Initial verification loading state
+  // Clear errors when the user edits input fields
+  const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setEmail(e.target.value);
+    if (errorMessage && authState !== "access_denied") {
+      setErrorMessage(null);
+    }
+  };
+
+  const handlePasswordChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setPassword(e.target.value);
+    if (errorMessage && authState !== "access_denied") {
+      setErrorMessage(null);
+    }
+  };
+
+  // 1. Initial verification loading state (No public layout, clean admin-specific screen)
   if (authState === "checking") {
     return (
       <div className="flex flex-col items-center justify-center min-h-screen bg-background">
@@ -365,15 +497,15 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
     );
   }
 
-  // 2. Unauthenticated / Access Denied: Secure Login Form
+  // 2. Unauthenticated / Access Denied: Secure Login Form (with hideNavbar & hideFooter)
   if (authState === "unauthenticated" || authState === "access_denied") {
     return (
-      <Layout>
+      <Layout hideNavbar={true} hideFooter={true}>
         <Helmet>
           <title>Admin Portal | Uyarcha</title>
           <meta name="robots" content="noindex,nofollow" />
         </Helmet>
-        <div className="container py-20 flex justify-center">
+        <div className="container min-h-screen flex items-center justify-center py-12">
           <div className="w-full max-w-md bg-card p-8 rounded-2xl border border-border shadow-2xl">
             <div className="text-center mb-8">
               <div className="inline-flex items-center justify-center w-12 h-12 bg-accent/10 text-accent rounded-xl mb-4">
@@ -388,7 +520,22 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
             {errorMessage && (
               <div className="mb-6 p-4 rounded-xl bg-destructive/10 border border-destructive/20 text-destructive text-xs flex items-start gap-3">
                 <AlertCircle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                <span className="leading-relaxed font-medium">{errorMessage}</span>
+                <div className="space-y-1">
+                  <span className="leading-relaxed font-medium block">{errorMessage}</span>
+                  {authState === "access_denied" && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        isAccessDeniedRef.current = false;
+                        setErrorMessage(null);
+                        setAuthState("unauthenticated");
+                      }}
+                      className="text-[11px] font-semibold underline hover:opacity-80 mt-1 inline-block"
+                    >
+                      Try signing in with a different account
+                    </button>
+                  )}
+                </div>
               </div>
             )}
 
@@ -402,11 +549,12 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
                   <input
                     type="email"
                     value={email}
-                    onChange={(e) => setEmail(e.target.value)}
+                    onChange={handleEmailChange}
                     required
                     disabled={isSubmitting || lockoutTimer > 0}
                     placeholder="admin@example.com"
-                    className="w-full border border-border rounded-xl pl-9 pr-3 py-3 bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20 text-sm"
+                    autoComplete="email"
+                    className="w-full border border-border rounded-xl pl-9 pr-3 py-3 bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20 text-sm disabled:opacity-50"
                   />
                 </div>
               </div>
@@ -420,11 +568,12 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
                   <input
                     type="password"
                     value={password}
-                    onChange={(e) => setPassword(e.target.value)}
+                    onChange={handlePasswordChange}
                     required
                     disabled={isSubmitting || lockoutTimer > 0}
                     placeholder="••••••••••••"
-                    className="w-full border border-border rounded-xl pl-9 pr-3 py-3 bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20 text-sm"
+                    autoComplete="current-password"
+                    className="w-full border border-border rounded-xl pl-9 pr-3 py-3 bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20 text-sm disabled:opacity-50"
                   />
                 </div>
               </div>
@@ -443,7 +592,7 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
                 {isSubmitting ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Signing in...
+                    <span>Signing in...</span>
                   </>
                 ) : (
                   "Sign In to Admin"
@@ -462,11 +611,15 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
     );
   }
 
-  // 3. Verifying Existing TOTP MFA (AAL2 Challenge)
+  // 3. Verifying Existing TOTP MFA (AAL2 Challenge) (with hideNavbar & hideFooter)
   if (authState === "verifying_mfa") {
     return (
-      <Layout>
-        <div className="container py-20 flex justify-center">
+      <Layout hideNavbar={true} hideFooter={true}>
+        <Helmet>
+          <title>MFA Verification | Uyarcha</title>
+          <meta name="robots" content="noindex,nofollow" />
+        </Helmet>
+        <div className="container min-h-screen flex items-center justify-center py-12">
           <div className="w-full max-w-md bg-card p-8 rounded-2xl border border-border shadow-2xl">
             <div className="text-center mb-8">
               <div className="inline-flex items-center justify-center w-12 h-12 bg-accent/10 text-accent rounded-xl mb-4">
@@ -495,6 +648,7 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
                   placeholder="000000"
                   autoFocus
                   required
+                  disabled={isVerifyingMfa}
                   className="w-full border border-border rounded-xl p-3 text-center text-2xl font-mono tracking-widest bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20"
                 />
               </div>
@@ -507,7 +661,7 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
                 {isVerifyingMfa ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Verifying...
+                    <span>Verifying...</span>
                   </>
                 ) : (
                   "Verify & Continue"
@@ -517,7 +671,8 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
 
             <div className="mt-6 pt-4 border-t border-border flex justify-center">
               <button
-                onClick={() => handleSignOut()}
+                type="button"
+                onClick={() => handleSignOut("Signed out from MFA verification.")}
                 className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium transition-colors"
               >
                 <LogOut size={14} /> Cancel and sign out
@@ -529,11 +684,15 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
     );
   }
 
-  // 4. First-time MFA Enrollment
+  // 4. First-time MFA Enrollment (with hideNavbar & hideFooter)
   if (authState === "enrolling_mfa") {
     return (
-      <Layout>
-        <div className="container py-16 flex justify-center">
+      <Layout hideNavbar={true} hideFooter={true}>
+        <Helmet>
+          <title>Enroll MFA | Uyarcha</title>
+          <meta name="robots" content="noindex,nofollow" />
+        </Helmet>
+        <div className="container min-h-screen flex items-center justify-center py-12">
           <div className="w-full max-w-lg bg-card p-8 rounded-2xl border border-border shadow-2xl">
             <div className="text-center mb-6">
               <div className="inline-flex items-center justify-center w-12 h-12 bg-accent/10 text-accent rounded-xl mb-3">
@@ -585,6 +744,7 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
                   onChange={(e) => setTotpCode(e.target.value.replace(/\D/g, ""))}
                   placeholder="000000"
                   required
+                  disabled={isVerifyingMfa}
                   className="w-full border border-border rounded-xl p-3 text-center text-2xl font-mono tracking-widest bg-muted/30 focus:bg-background outline-none transition-all focus:ring-2 focus:ring-accent/20"
                 />
               </div>
@@ -597,7 +757,7 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
                 {isVerifyingMfa ? (
                   <>
                     <Loader2 className="w-4 h-4 animate-spin" />
-                    Enrolling...
+                    <span>Activating...</span>
                   </>
                 ) : (
                   "Activate MFA & Proceed"
@@ -607,7 +767,8 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
 
             <div className="mt-6 pt-4 border-t border-border flex justify-center">
               <button
-                onClick={() => handleSignOut()}
+                type="button"
+                onClick={() => handleSignOut("Signed out from MFA enrollment.")}
                 className="text-xs text-muted-foreground hover:text-foreground flex items-center gap-1 font-medium transition-colors"
               >
                 <LogOut size={14} /> Cancel and sign out

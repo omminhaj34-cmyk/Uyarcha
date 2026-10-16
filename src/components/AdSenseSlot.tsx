@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef } from "react";
 import { useLocation } from "react-router-dom";
-import { getCookieConsent, CONSENT_EVENT } from "./CookieConsent";
+import { getCookieConsent, CONSENT_EVENT } from "@/lib/cookieConsent";
 
 interface AdSenseSlotProps {
   slotId?: string;
@@ -16,13 +16,15 @@ declare global {
 }
 
 /**
- * AdSenseSlot: AdSense-ready responsive ad slot.
- * - Loads the AdSense script ONLY after user grants cookie consent.
- * - Never renders on /admin, /contact, or 404 pages.
- * - Reserves fixed/responsive minimum dimensions to prevent Cumulative Layout Shift (CLS).
+ * AdSenseSlot: Google AdSense compliant ad slot container.
+ * - Loads the AdSense script ONLY when:
+ *   1. User has provided cookie consent.
+ *   2. Route is not an excluded path (/admin, /contact, 404).
+ *   3. Genuine production Client ID and Slot ID are configured (no dummy placeholders).
+ * - Reserves responsive minimum height to prevent Cumulative Layout Shift (CLS).
  */
 export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
-  slotId = "1234567890",
+  slotId,
   format = "auto",
   className = "",
   style = {},
@@ -34,7 +36,17 @@ export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
 
   const clientId = import.meta.env.VITE_ADSENSE_CLIENT_ID;
 
-  // 1. Exclude restricted routes (/admin, /contact, 404)
+  // Verify that credentials are real and not dummy placeholders
+  const isConfigured = Boolean(
+    clientId &&
+    clientId.startsWith("ca-pub-") &&
+    !clientId.includes("placeholder") &&
+    slotId &&
+    slotId !== "1234567890" &&
+    !slotId.includes("placeholder")
+  );
+
+  // 1. Exclude restricted and administrative routes
   const isRestrictedRoute =
     location.pathname.startsWith("/admin") ||
     location.pathname === "/contact" ||
@@ -53,9 +65,9 @@ export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
     };
   }, []);
 
-  // 3. Conditionally load AdSense script once consent is granted
+  // 3. Conditionally load AdSense script once consent is granted AND valid credentials exist
   useEffect(() => {
-    if (isRestrictedRoute || !hasConsent || !clientId) return;
+    if (isRestrictedRoute || !hasConsent || !isConfigured || !clientId) return;
 
     const scriptId = "google-adsense-script";
     if (!document.getElementById(scriptId)) {
@@ -66,11 +78,11 @@ export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
       script.crossOrigin = "anonymous";
       document.head.appendChild(script);
     }
-  }, [hasConsent, isRestrictedRoute, clientId]);
+  }, [hasConsent, isRestrictedRoute, isConfigured, clientId]);
 
   // 4. Push AdSense slot when element is mounted and consented
   useEffect(() => {
-    if (isRestrictedRoute || !hasConsent || isPushedRef.current) return;
+    if (isRestrictedRoute || !hasConsent || !isConfigured || isPushedRef.current) return;
 
     try {
       if (adRef.current && (window.adsbygoogle || clientId)) {
@@ -79,9 +91,9 @@ export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
         isPushedRef.current = true;
       }
     } catch (err) {
-      console.warn("AdSense push error:", err);
+      console.warn("AdSense slot push error:", err);
     }
-  }, [hasConsent, isRestrictedRoute, clientId]);
+  }, [hasConsent, isRestrictedRoute, isConfigured, clientId]);
 
   if (isRestrictedRoute) {
     return null;
@@ -97,13 +109,13 @@ export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
     <div
       className={`w-full overflow-hidden flex flex-col items-center justify-center my-6 rounded-xl border border-dashed border-border/40 bg-muted/10 p-2 ${minHeightClass} ${className}`}
       style={style}
-      aria-label="Advertisement Slot"
+      aria-label="Advertisement Space"
     >
       <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-1">
-        Sponsored
+        Advertisement
       </span>
 
-      {hasConsent && clientId ? (
+      {hasConsent && isConfigured ? (
         <ins
           ref={adRef}
           className="adsbygoogle block w-full text-center"
@@ -117,7 +129,7 @@ export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
         <div className="text-xs text-muted-foreground/60 italic py-4 text-center">
           {!hasConsent
             ? "Advertisements paused until cookie consent is provided."
-            : "Ad slot ready (Add VITE_ADSENSE_CLIENT_ID in your configuration)."}
+            : "Ad space ready. Configure VITE_ADSENSE_CLIENT_ID and slotId in production."}
         </div>
       )}
     </div>

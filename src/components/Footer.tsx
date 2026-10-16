@@ -1,5 +1,6 @@
 import { Link } from "react-router-dom";
 import { Facebook, Instagram, Youtube } from "lucide-react";
+import { reopenCookieConsent } from "@/lib/cookieConsent";
 
 const XIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -50,6 +51,13 @@ const Footer = () => {
               <Link to="/about" className="hover:text-accent transition-colors text-left w-fit">About</Link>
               <Link to="/contact" className="hover:text-accent transition-colors text-left w-fit">Contact</Link>
               <Link to="/privacy-policy" className="hover:text-accent transition-colors text-left w-fit">Privacy Policy</Link>
+              <button
+                type="button"
+                onClick={reopenCookieConsent}
+                className="hover:text-accent transition-colors text-left w-fit text-primary-foreground/70 text-sm cursor-pointer"
+              >
+                Cookie Preferences
+              </button>
             </div>
           </div>
           <div className="md:col-span-1">

@@ -3,7 +3,24 @@ import { Helmet } from "react-helmet-async";
 import Layout from "@/components/Layout";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
-import { PlusCircle, Edit, Trash2, X, Save, Copy, CheckSquare, Eye, FileText, LayoutDashboard, Share2, AlertTriangle, CloudOff } from "lucide-react";
+import {
+    PlusCircle,
+    Edit,
+    Trash2,
+    X,
+    Save,
+    Copy,
+    CheckSquare,
+    Eye,
+    FileText,
+    Download,
+    LogOut,
+    Award,
+    Briefcase,
+    CloudOff,
+    ExternalLink,
+    ShieldCheck,
+} from "lucide-react";
 import { getImageUrl, supabase, isInvalid as isSupabaseConfigInvalid } from "@/lib/supabase";
 import { categories } from "@/lib/constants";
 import type { Article } from "@/types/post";
@@ -25,12 +42,51 @@ const quillModules = {
 import { calculateReadTime, slugify } from "@/lib/db";
 import { useAdminPosts, useDeletePost, useSavePost } from "@/hooks/useAdminPosts";
 import { getPostContentForAdmin } from "@/queries/adminPosts";
-import { isOnline } from "@/lib/config";
 import PageLoader from "@/components/PageLoader";
 import ErrorFallback from "@/components/ErrorFallback";
 import AdminCertificateTable from "@/components/AdminCertificateTable";
+import AdminJobsSection from "@/components/AdminJobsSection";
 import { sanitizeArticleContent } from "@/lib/sanitize";
 import { postSchema } from "@/lib/validations/post";
+
+const formatDate = (dateValue?: string) => {
+    if (!dateValue) return "—";
+    try {
+        const d = new Date(dateValue);
+        if (isNaN(d.getTime())) return String(dateValue).split("T")[0];
+        return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
+    } catch {
+        return String(dateValue).split("T")[0];
+    }
+};
+
+const getStatusBadge = (status?: string) => {
+    const s = status?.toLowerCase() || 'draft';
+    if (s === 'published') {
+        return (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200/60 dark:bg-emerald-950/40 dark:text-emerald-300 dark:border-emerald-800/40">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-600 dark:bg-emerald-400" />
+                Published
+            </span>
+        );
+    }
+    if (s === 'scheduled') {
+        return (
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-blue-50 text-blue-700 border border-blue-200/60 dark:bg-blue-950/40 dark:text-blue-300 dark:border-blue-800/40">
+                <span className="w-1.5 h-1.5 rounded-full bg-blue-600 dark:bg-blue-400" />
+                Scheduled
+            </span>
+        );
+    }
+    return (
+        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-50 text-amber-700 border border-amber-200/60 dark:bg-amber-950/40 dark:text-amber-300 dark:border-amber-800/40">
+            <span className="w-1.5 h-1.5 rounded-full bg-amber-600 dark:bg-amber-400" />
+            Draft
+        </span>
+    );
+};
+
+type AdminTab = "posts" | "jobs" | "certificates";
 
 const Admin = () => {
     const [userEmail, setUserEmail] = useState<string>("Admin");
@@ -40,7 +96,7 @@ const Admin = () => {
     const [tagsInput, setTagsInput] = useState("");
     const [imageFile, setImageFile] = useState<File | null>(null);
     const [imagePreview, setImagePreview] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'posts' | 'certificates'>('posts');
+    const [activeTab, setActiveTab] = useState<AdminTab>("posts");
 
     const { 
         data: posts = [] as Partial<Article>[], 
@@ -49,7 +105,6 @@ const Admin = () => {
         refetch: refetchPosts
     } = useAdminPosts(true);
     
-    // We fetch full content only when editing
     const [isLoadingContent, setIsLoadingContent] = useState(false);
 
     useEffect(() => {
@@ -76,24 +131,22 @@ const Admin = () => {
         toast.success("Backup exported as JSON");
     };
 
-    // Draft Autosave
-    const [lastSaved, setLastSaved] = useState<string | null>(null);
-    useEffect(() => {
-        if (!isModalOpen || !formData.title || !formData.content || editingPost) return;
+    const closeModal = () => {
+        setIsModalOpen(false);
+        setEditingPost(null);
+        setImageFile(null);
+        setImagePreview(null);
+        setIsLoadingContent(false);
+    };
 
-        const interval = setInterval(() => {
-            console.log("ADMIN: Autosaving draft...");
-            const draftData = { 
-                ...formData, 
-                status: 'draft' as const,
-                publish_date: new Date().toISOString() 
-            };
-            saveMutation.mutate({ data: draftData, imageFile: null });
-            setLastSaved(new Date().toLocaleTimeString());
-        }, 30000); // 30 sec for stability
-
-        return () => clearInterval(interval);
-    }, [isModalOpen, formData, editingPost]);
+    const saveMutation = useSavePost(editingPost, () => {
+        try {
+            localStorage.removeItem('uyarcha_admin_draft');
+        } catch {
+            // ignore
+        }
+        closeModal();
+    });
 
     const deleteMutation = useDeletePost();
 
@@ -103,35 +156,46 @@ const Admin = () => {
         toast.info("Deleting post...");
     };
 
-    const closeModal = () => {
-        setIsModalOpen(false);
-        setEditingPost(null);
-        setImageFile(null);
-        setImagePreview(null);
-        setIsLoadingContent(false);
-    };
-
-    const saveMutation = useSavePost(editingPost, closeModal);
-
-    const handleSave = async (e: React.FormEvent) => {
-        e.preventDefault();
+    const handleSave = async (e?: React.FormEvent) => {
+        if (e) e.preventDefault();
         
-        if (!formData.title?.trim()) return toast.error("Title is mandatory.");
-        if (!formData.content?.trim()) return toast.error("Content is mandatory.");
+        const title = formData.title?.trim() || "";
+        if (!title) {
+            toast.error("Article title is required.");
+            return;
+        }
+        if (title.length < 3) {
+            toast.error("Title must be at least 3 characters.");
+            return;
+        }
 
-        const data = { ...formData };
+        const content = formData.content?.trim() || "";
+        const strippedContent = content.replace(/<[^>]*>/g, "").trim();
+        if (!content || (!strippedContent && !content.includes("<img"))) {
+            toast.error("Article content is required.");
+            return;
+        }
+
+        const data: Partial<Article> = { ...formData };
+        data.title = title;
+        data.content = sanitizeArticleContent(content);
+        data.category = formData.category || categories[0] || "General";
         data.tags = tagsInput.split(",").map((t: string) => t.trim()).filter(Boolean);
-        
-        if (!data.slug) data.slug = slugify(data.title || "");
-        
-        // Sanitize article content before saving to eliminate XSS
-        data.content = sanitizeArticleContent(data.content || "");
-        data.readTime = calculateReadTime(data.content || "");
+        data.author = userEmail || "Admin";
+        data.excerpt = formData.excerpt?.trim() || "";
+        data.seo_title = formData.seo_title?.trim() || null;
+        data.seo_description = formData.seo_description?.trim() || "";
+        data.seo_keywords = formData.seo_keywords?.trim() || null;
+        data.featured = Boolean(formData.featured);
 
-        const publishDate = data.date ? new Date(data.date).toISOString() : new Date().toISOString();
+        const rawSlug = formData.slug?.trim() || title;
+        data.slug = slugify(rawSlug);
+        data.readTime = calculateReadTime(data.content);
+
+        const publishDate = formData.date ? new Date(formData.date).toISOString() : new Date().toISOString();
         data.publish_date = publishDate;
 
-        if (!data.status) data.status = 'draft';
+        if (!data.status) data.status = 'published';
 
         const now = new Date();
         const pubDate = new Date(publishDate);
@@ -139,7 +203,6 @@ const Admin = () => {
             data.status = 'scheduled';
         }
 
-        // Validate form inputs with Zod schema
         const validation = postSchema.safeParse(data);
         if (!validation.success) {
             const firstError = validation.error.errors[0]?.message || "Validation failed";
@@ -153,7 +216,6 @@ const Admin = () => {
     const openModal = async (post?: Partial<Article>, duplicate = false) => {
         setIsModalOpen(true);
         if (post) {
-            // Optimistic fast UI update with list metadata
             const postDate = (String(post.publish_date || post.date || new Date().toISOString())).split("T")[0];
             const dataBase = duplicate ? { ...post, id: undefined, title: post.title + " (Copy)", slug: "", status: "draft" as const } : post;
             
@@ -161,7 +223,6 @@ const Admin = () => {
             setEditingPost(duplicate ? null : post);
             setImagePreview(getImageUrl(post?.image || ""));
             
-            // Background fetch heavy content/seo tags
             setIsLoadingContent(true);
             const fullPost = await getPostContentForAdmin(post.id);
             setIsLoadingContent(false);
@@ -174,9 +235,24 @@ const Admin = () => {
         } else {
             setEditingPost(null);
             const today = new Date().toISOString().split("T")[0];
-            setFormData({ title: "", slug: "", excerpt: "", content: "", author: userEmail || "Admin", date: today, category: categories[0], image: "", status: "published" as const, featured: false, publish_date: new Date().toISOString() });
-            setTagsInput("");
+            
+            const initialData: Partial<Article> = {
+                title: "",
+                slug: "",
+                excerpt: "",
+                content: "",
+                author: userEmail || "Admin",
+                date: today,
+                category: categories[0],
+                image: "",
+                status: "published" as const,
+                featured: false,
+                publish_date: new Date().toISOString(),
+            };
+
+            setFormData(initialData);
             setImagePreview(null);
+            setTagsInput("");
         }
     };
 
@@ -189,39 +265,140 @@ const Admin = () => {
         };
     }, [posts]);
 
-    if (isPostsLoading) return <PageLoader message="Syncing dashboard metrics..." />;
-    if (isPostsError) return <ErrorFallback message="Failed to connect to database." onRetry={refetchPosts} />;
+    if (isPostsLoading && activeTab === "posts") return <PageLoader message="Syncing dashboard metrics..." hideNavbar={true} hideFooter={true} />;
+    if (isPostsError && activeTab === "posts") return <ErrorFallback message="Failed to connect to database." onRetry={refetchPosts} />;
 
     return (
-        <Layout>
+        /* Render without public navbar and footer */
+        <Layout hideNavbar={true} hideFooter={true}>
             <Helmet>
-                <title>Dashboard | Uyarcha Admin</title>
+                <title>Admin Dashboard | Uyarcha</title>
                 <meta name="robots" content="noindex,nofollow" />
             </Helmet>
-            <div className="container py-8 max-w-7xl">
-                <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 gap-4">
-                    <div>
-                        <h1 className="text-3xl font-black tracking-tight">Dashboard</h1>
-                        <p className="text-muted-foreground">Logged in as <span className="font-semibold text-foreground">{userEmail}</span> • Content Management System</p>
+            
+            {/* Dedicated Admin Navigation Bar */}
+            <header className="border-b border-border bg-card sticky top-0 z-40">
+                <div className="w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
+                    <div className="flex items-center gap-3">
+                        <Link to="/" className="font-display text-2xl font-bold tracking-tight text-foreground hover:text-accent transition-colors">
+                            Uyarcha
+                        </Link>
+                        <span className="text-border">/</span>
+                        <div className="flex items-center gap-1.5 px-2.5 py-0.5 rounded-md bg-accent/10 text-accent font-semibold text-xs">
+                            <ShieldCheck size={14} />
+                            <span>Admin Portal</span>
+                        </div>
                     </div>
-                    <div className="flex gap-3">
-                        <button onClick={handleExport} className="px-4 py-2 border rounded-xl text-sm font-bold hover:bg-muted transition-colors flex items-center gap-2">
-                            <Share2 size={16} /> Export JSON
+
+                    <div className="flex items-center gap-2 sm:gap-4">
+                        <Link
+                            to="/"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="hidden sm:inline-flex items-center gap-1.5 text-xs font-semibold text-muted-foreground hover:text-foreground transition-colors"
+                        >
+                            <span>View Public Site</span>
+                            <ExternalLink size={12} />
+                        </Link>
+
+                        <button
+                            type="button"
+                            onClick={handleSignOut}
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-border text-xs font-semibold text-muted-foreground hover:text-destructive hover:bg-destructive/10 hover:border-destructive/30 transition-colors"
+                        >
+                            <LogOut size={13} />
+                            <span>Sign Out</span>
                         </button>
-                        <button onClick={handleSignOut} className="px-4 py-2 border rounded-xl text-sm font-bold hover:bg-muted transition-colors">Sign Out</button>
-                        {activeTab === 'posts' && (
-                            <button onClick={() => openModal()} className="flex items-center gap-2 px-6 py-2 bg-accent text-white rounded-xl font-bold hover:opacity-90 transition-all shadow-lg shadow-accent/20">
-                                <PlusCircle size={20} /> New Post
-                            </button>
-                        )}
                     </div>
                 </div>
+            </header>
 
-                <div className="flex border-b border-border mb-8">
-                    <button onClick={() => setActiveTab('posts')} className={`px-6 py-3 font-bold border-b-2 transition-colors ${activeTab === 'posts' ? 'border-accent text-accent' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Posts</button>
-                    <button onClick={() => setActiveTab('certificates')} className={`px-6 py-3 font-bold border-b-2 transition-colors ${activeTab === 'certificates' ? 'border-accent text-accent' : 'border-transparent text-muted-foreground hover:text-foreground'}`}>Certificates</button>
+            {/* Main Admin Content Container */}
+            <div className="w-full max-w-[1360px] mx-auto px-4 sm:px-6 lg:px-8 py-8 animate-fade-in">
+                {/* Admin Header with Welcome Info */}
+                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+                    <div className="space-y-1">
+                        <h1 className="font-display text-3xl sm:text-4xl font-extrabold tracking-tight text-foreground">
+                            Admin Dashboard
+                        </h1>
+                        <p className="text-sm text-muted-foreground flex items-center flex-wrap gap-1.5">
+                            <span>Logged in as</span>
+                            <span className="font-semibold text-foreground bg-secondary px-2 py-0.5 rounded text-xs sm:text-sm">
+                                {userEmail}
+                            </span>
+                            <span className="text-muted-foreground/60">•</span>
+                            <span>Content Management System</span>
+                        </p>
+                    </div>
+
+                    {activeTab === "posts" && (
+                        <div className="flex items-center flex-wrap gap-2.5 sm:gap-3">
+                            <button
+                                type="button"
+                                onClick={handleExport}
+                                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg border border-border bg-card text-foreground text-sm font-semibold hover:bg-secondary hover:text-accent transition-colors shadow-xs"
+                            >
+                                <Download className="w-4 h-4 text-muted-foreground" />
+                                <span>Export JSON</span>
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => openModal()}
+                                className="inline-flex items-center justify-center gap-2 px-5 py-2.5 rounded-lg bg-accent text-white text-sm font-bold hover:opacity-90 transition-all shadow-md shadow-accent/25"
+                            >
+                                <PlusCircle className="w-4 h-4" />
+                                <span>New Post</span>
+                            </button>
+                        </div>
+                    )}
                 </div>
 
+                {/* 3 Main Management Tabs: Posts | Jobs | Certificates */}
+                <div className="flex items-center border-b border-border mb-8 overflow-x-auto">
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("posts")}
+                        className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 -mb-px shrink-0 ${
+                            activeTab === "posts"
+                                ? "border-accent text-accent"
+                                : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                        }`}
+                    >
+                        <FileText size={16} />
+                        <span>Posts</span>
+                        <span className="ml-1 text-xs px-2 py-0.5 rounded-full bg-secondary font-semibold text-muted-foreground">
+                            {posts.length}
+                        </span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("jobs")}
+                        className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 -mb-px shrink-0 ${
+                            activeTab === "jobs"
+                                ? "border-accent text-accent"
+                                : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                        }`}
+                    >
+                        <Briefcase size={16} />
+                        <span>Jobs</span>
+                    </button>
+
+                    <button
+                        type="button"
+                        onClick={() => setActiveTab("certificates")}
+                        className={`px-6 py-3 font-bold text-sm border-b-2 transition-all flex items-center gap-2 -mb-px shrink-0 ${
+                            activeTab === "certificates"
+                                ? "border-accent text-accent"
+                                : "border-transparent text-muted-foreground hover:text-foreground hover:border-muted-foreground/30"
+                        }`}
+                    >
+                        <Award size={16} />
+                        <span>Certificates</span>
+                    </button>
+                </div>
+
+                {/* Supabase Connection Warning */}
                 {isSupabaseConfigInvalid && (
                     <div className="mb-8 bg-destructive/10 border border-destructive/20 p-4 rounded-2xl flex items-center justify-between gap-4 animate-in fade-in slide-in-from-top-4">
                         <div className="flex items-center gap-3">
@@ -230,183 +407,329 @@ const Admin = () => {
                             </div>
                             <div>
                                 <h3 className="font-bold text-destructive">Supabase Not Connected</h3>
-                                <p className="text-xs text-muted-foreground">Your .env file has placeholder values. Publishing and data fetching will not work until correctly configured.</p>
+                                <p className="text-xs text-muted-foreground">Your .env file has placeholder values. Data syncing will not work until correctly configured.</p>
                             </div>
                         </div>
                         <Link to="/" className="text-xs font-bold px-4 py-2 bg-destructive text-white rounded-lg whitespace-nowrap">Go Back</Link>
                     </div>
                 )}
 
-                {activeTab === 'posts' ? (
-                <>
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 mb-12">
-                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex items-center gap-3 text-muted-foreground mb-4 font-bold uppercase text-[10px] tracking-widest">
-                            <FileText size={16} /> Total Content
-                        </div>
-                        <div className="text-4xl font-black">{stats.total}</div>
-                    </div>
-                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex items-center gap-3 text-green-500 mb-4 font-bold uppercase text-[10px] tracking-widest">
-                            <CheckSquare size={16} /> Live Articles
-                        </div>
-                        <div className="text-4xl font-black">{stats.published}</div>
-                    </div>
-                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex items-center gap-3 text-amber-500 mb-4 font-bold uppercase text-[10px] tracking-widest">
-                            <Edit size={16} /> Drafts
-                        </div>
-                        <div className="text-4xl font-black">{stats.drafts}</div>
-                    </div>
-                    <div className="bg-card border border-border p-6 rounded-2xl shadow-sm hover:shadow-md transition-shadow">
-                        <div className="flex items-center gap-3 text-accent mb-4 font-bold uppercase text-[10px] tracking-widest">
-                            <Eye size={16} /> Total Engagement
-                        </div>
-                        <div className="text-4xl font-black">{stats.views.toLocaleString()}</div>
-                    </div>
-                </div>
+                {/* TAB CONTENT */}
 
-                <div className="bg-card border border-border rounded-2xl overflow-hidden shadow-sm">
-                    <table className="w-full text-left">
-                        <thead className="bg-muted/50 border-b border-border">
-                            <tr>
-                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Article</th>
-                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Status</th>
-                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Views</th>
-                                <th className="p-4 font-bold text-xs uppercase tracking-wider">Date</th>
-                                <th className="p-4 font-bold text-xs uppercase tracking-wider text-right">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                            {posts.length === 0 ? (
-                                <tr><td colSpan={5} className="p-20 text-center text-muted-foreground font-medium italic">No articles yet. Start writing!</td></tr>
-                            ) : (
-                                posts.map((post: Partial<Article>) => (
-                                    <tr key={post.id} className="hover:bg-muted/30 transition-colors group">
-                                        <td className="p-4">
-                                            <div className="flex items-center gap-4">
-                                                <img 
-                                                    src={post.image || "/placeholder.svg"} 
-                                                    onError={(e)=>{(e.target as HTMLImageElement).src="/placeholder.svg"}} 
-                                                    className="w-10 h-10 rounded-lg object-cover bg-muted" 
-                                                />
+                {/* 1. POSTS SECTION */}
+                {activeTab === "posts" && (
+                    <>
+                        {/* 4 Statistics Cards */}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 sm:gap-5 lg:gap-6 mb-8">
+                            <div className="bg-card border border-border p-6 rounded-xl shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between min-h-[120px]">
+                                <div className="flex items-center justify-between mb-3 text-muted-foreground">
+                                    <span className="font-bold uppercase text-[11px] tracking-wider text-muted-foreground">
+                                        Total Content
+                                    </span>
+                                    <div className="w-8 h-8 rounded-lg bg-secondary flex items-center justify-center text-muted-foreground">
+                                        <FileText size={16} />
+                                    </div>
+                                </div>
+                                <div className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                                    {stats.total}
+                                </div>
+                            </div>
+
+                            <div className="bg-card border border-border p-6 rounded-xl shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between min-h-[120px]">
+                                <div className="flex items-center justify-between mb-3 text-muted-foreground">
+                                    <span className="font-bold uppercase text-[11px] tracking-wider text-muted-foreground">
+                                        Live Articles
+                                    </span>
+                                    <div className="w-8 h-8 rounded-lg bg-emerald-500/10 flex items-center justify-center text-emerald-600">
+                                        <CheckSquare size={16} />
+                                    </div>
+                                </div>
+                                <div className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                                    {stats.published}
+                                </div>
+                            </div>
+
+                            <div className="bg-card border border-border p-6 rounded-xl shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between min-h-[120px]">
+                                <div className="flex items-center justify-between mb-3 text-muted-foreground">
+                                    <span className="font-bold uppercase text-[11px] tracking-wider text-muted-foreground">
+                                        Drafts
+                                    </span>
+                                    <div className="w-8 h-8 rounded-lg bg-amber-500/10 flex items-center justify-center text-amber-600">
+                                        <Edit size={16} />
+                                    </div>
+                                </div>
+                                <div className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                                    {stats.drafts}
+                                </div>
+                            </div>
+
+                            <div className="bg-card border border-border p-6 rounded-xl shadow-xs hover:shadow-md transition-shadow flex flex-col justify-between min-h-[120px]">
+                                <div className="flex items-center justify-between mb-3 text-muted-foreground">
+                                    <span className="font-bold uppercase text-[11px] tracking-wider text-muted-foreground">
+                                        Total Engagement
+                                    </span>
+                                    <div className="w-8 h-8 rounded-lg bg-accent/10 flex items-center justify-center text-accent">
+                                        <Eye size={16} />
+                                    </div>
+                                </div>
+                                <div className="text-3xl sm:text-4xl font-extrabold text-foreground tracking-tight">
+                                    {stats.views.toLocaleString()}
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* Article Table */}
+                        <div className="bg-card border border-border rounded-xl shadow-xs overflow-hidden mb-12">
+                            <div className="overflow-x-auto w-full">
+                                <table className="w-full text-left border-collapse min-w-[700px]">
+                                    <thead className="bg-muted/40 border-b border-border">
+                                        <tr>
+                                            <th className="py-4 px-6 font-bold text-xs uppercase tracking-wider text-muted-foreground w-[45%]">
+                                                Article
+                                            </th>
+                                            <th className="py-4 px-5 font-bold text-xs uppercase tracking-wider text-muted-foreground">
+                                                Status
+                                            </th>
+                                            <th className="py-4 px-5 font-bold text-xs uppercase tracking-wider text-muted-foreground">
+                                                Views
+                                            </th>
+                                            <th className="py-4 px-5 font-bold text-xs uppercase tracking-wider text-muted-foreground">
+                                                Date
+                                            </th>
+                                            <th className="py-4 px-6 font-bold text-xs uppercase tracking-wider text-muted-foreground text-right">
+                                                Actions
+                                            </th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-border">
+                                        {posts.length === 0 ? (
+                                            <tr>
+                                                <td colSpan={5} className="py-16 px-6 text-center text-muted-foreground font-medium italic">
+                                                    No articles yet. Click "New Post" above to start writing!
+                                                </td>
+                                            </tr>
+                                        ) : (
+                                            posts.map((post: Partial<Article>) => (
+                                                <tr key={post.id} className="hover:bg-muted/30 transition-colors group">
+                                                    <td className="py-4 px-6">
+                                                        <div className="flex items-center gap-4">
+                                                            <img 
+                                                                src={post.image || "/placeholder.svg"} 
+                                                                alt={post.title || "Article thumbnail"}
+                                                                onError={(e) => { (e.target as HTMLImageElement).src = "/placeholder.svg"; }} 
+                                                                className="w-12 h-12 rounded-lg object-cover bg-muted shrink-0 border border-border/60" 
+                                                            />
+                                                            <div className="min-w-0 flex-1">
+                                                                <div 
+                                                                    className="font-bold text-sm sm:text-base text-foreground truncate" 
+                                                                    title={post.title}
+                                                                >
+                                                                    {post.title || "Untitled Article"}
+                                                                </div>
+                                                                <div className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mt-0.5">
+                                                                    {post.category || "General"}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    </td>
+
+                                                    <td className="py-4 px-5 whitespace-nowrap">
+                                                        {getStatusBadge(post.status)}
+                                                    </td>
+
+                                                    <td className="py-4 px-5 font-mono text-sm font-semibold text-foreground whitespace-nowrap">
+                                                        {typeof post.views === 'number' ? post.views.toLocaleString() : '0'}
+                                                    </td>
+
+                                                    <td className="py-4 px-5 text-sm text-muted-foreground whitespace-nowrap">
+                                                        {formatDate(post.publish_date || post.date)}
+                                                    </td>
+
+                                                    <td className="py-4 px-6 text-right whitespace-nowrap">
+                                                        <div className="flex items-center justify-end gap-1.5">
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => openModal(post, true)} 
+                                                                className="p-2 text-muted-foreground hover:text-foreground hover:bg-secondary rounded-lg transition-colors" 
+                                                                title="Duplicate article"
+                                                                aria-label={`Duplicate ${post.title}`}
+                                                            >
+                                                                <Copy size={16} />
+                                                            </button>
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => openModal(post)} 
+                                                                className="p-2 text-muted-foreground hover:text-accent hover:bg-secondary rounded-lg transition-colors" 
+                                                                title="Edit article"
+                                                                aria-label={`Edit ${post.title}`}
+                                                            >
+                                                                <Edit size={16} />
+                                                            </button>
+                                                            <button 
+                                                                type="button"
+                                                                onClick={() => handleDelete(post.id as string)} 
+                                                                className="p-2 text-muted-foreground hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 rounded-lg transition-colors" 
+                                                                title="Delete article"
+                                                                aria-label={`Delete ${post.title}`}
+                                                            >
+                                                                <Trash2 size={16} />
+                                                            </button>
+                                                        </div>
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        {/* Article Create & Edit Modal */}
+                        {isModalOpen && (
+                            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                                <div className="bg-background w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-3xl shadow-2xl flex flex-col border border-border">
+                                    <div className="p-6 border-b border-border flex justify-between items-center bg-card">
+                                        <div>
+                                            <h2 className="text-xl font-black text-foreground">{editingPost ? "Edit Article" : "Draft New Content"}</h2>
+                                            <p className="text-[10px] text-muted-foreground uppercase font-black mt-0.5">Slug: {formData.slug || 'auto-generated'}</p>
+                                        </div>
+                                        <button onClick={closeModal} className="p-2 hover:bg-muted rounded-full transition-colors" aria-label="Close modal">
+                                            <X size={20} />
+                                        </button>
+                                    </div>
+
+                                    <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-6 sm:p-8 space-y-8">
+                                        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
+                                            <div className="md:col-span-2 space-y-6">
                                                 <div>
-                                                    <div className="font-bold text-sm line-clamp-1">{post.title}</div>
-                                                    <div className="text-[10px] font-black uppercase text-muted-foreground/60">{post.category}</div>
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Title</label>
+                                                    <input 
+                                                        value={formData.title || ""} 
+                                                        onChange={(e) => setFormData({ ...formData, title: e.target.value })} 
+                                                        className="w-full text-2xl sm:text-3xl font-black bg-transparent border-b border-border pb-2 outline-none placeholder:text-muted-foreground focus:border-accent transition-colors" 
+                                                        placeholder="Title of your story..." 
+                                                        required 
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Excerpt</label>
+                                                    <textarea 
+                                                        value={formData.excerpt || ""} 
+                                                        onChange={(e) => setFormData({ ...formData, excerpt: e.target.value })} 
+                                                        rows={2}
+                                                        className="w-full bg-muted/20 border border-border rounded-xl p-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-accent" 
+                                                        placeholder="Brief summary or excerpt of your article..." 
+                                                    />
+                                                </div>
+
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Content</label>
+                                                    <div className="border border-border rounded-2xl overflow-hidden min-h-[400px] relative bg-card">
+                                                        {isLoadingContent && (
+                                                            <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex items-center justify-center font-bold text-muted-foreground">
+                                                                <div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin mr-2" /> 
+                                                                Loading full content...
+                                                            </div>
+                                                        )}
+                                                        <Suspense fallback={<PageLoader />}>
+                                                            <ReactQuill value={formData.content || ""} onChange={(val) => setFormData({ ...formData, content: val })} modules={quillModules} className="border-none ql-custom" />
+                                                        </Suspense>
+                                                    </div>
                                                 </div>
                                             </div>
-                                        </td>
-                                        <td className="p-4">
-                                            <span className={`px-2 py-1 rounded-full text-[10px] uppercase font-black ${post.status === 'published' ? 'bg-green-100 text-green-700' : post.status === 'scheduled' ? 'bg-blue-100 text-blue-700' : 'bg-amber-100 text-amber-700'}`}>
-                                                {post.status}
-                                            </span>
-                                        </td>
-                                         <td className="p-4 font-mono text-xs">{post.views || 0}</td>
-                                        <td className="p-4 text-xs text-muted-foreground">{String(post.publish_date || post.date || "").split('T')[0]}</td>
-                                        <td className="p-4 text-right">
-                                            <div className="flex justify-end gap-1 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
-                                                <button onClick={() => openModal(post, true)} className="p-2 hover:bg-muted rounded-lg" title="Duplicate"><Copy size={16} /></button>
-                                                <button onClick={() => openModal(post)} className="p-2 hover:bg-muted text-accent rounded-lg" title="Edit"><Edit size={16} /></button>
-                                                <button onClick={() => handleDelete(post.id as string)} className="p-2 hover:bg-red-50 text-red-600 rounded-lg" title="Delete"><Trash2 size={16} /></button>
+
+                                            <div className="space-y-6 bg-muted/30 p-6 rounded-2xl border border-border h-fit">
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Publishing settings</label>
+                                                    <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })} className="w-full bg-background border border-border rounded-xl p-3 text-sm font-bold appearance-none">
+                                                        <option value="published">Published</option>
+                                                        <option value="draft">Draft Only</option>
+                                                        <option value="scheduled">Scheduled</option>
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Category</label>
+                                                    <select value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-sm font-bold">
+                                                        {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                                                    </select>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Tags (Comma-separated)</label>
+                                                    <input 
+                                                        value={tagsInput} 
+                                                        onChange={(e) => setTagsInput(e.target.value)} 
+                                                        placeholder="React, TypeScript, Web..." 
+                                                        className="w-full bg-background border border-border rounded-xl p-3 text-xs font-medium" 
+                                                    />
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Cover Image</label>
+                                                    <div className="aspect-video bg-background border border-border rounded-xl mb-3 overflow-hidden">
+                                                        {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" alt="Cover preview" /> : <div className="w-full h-full flex items-center justify-center text-muted-foreground italic text-xs">No image</div>}
+                                                    </div>
+                                                    <input
+                                                        type="file"
+                                                        accept="image/*"
+                                                        onChange={(e) => {
+                                                            if (e.target.files && e.target.files[0]) {
+                                                                const file = e.target.files[0];
+                                                                setImageFile(file);
+                                                                setImagePreview(URL.createObjectURL(file));
+                                                            }
+                                                        }}
+                                                        className="w-full text-xs"
+                                                    />
+                                                </div>
+                                                <div className="flex items-center gap-3 bg-background p-3 rounded-xl border border-border">
+                                                    <input type="checkbox" id="featured" checked={formData.featured} onChange={(e) => setFormData({ ...formData, featured: e.target.checked })} />
+                                                    <label htmlFor="featured" className="text-xs font-bold cursor-pointer">Featured Story</label>
+                                                </div>
+                                                <div className="pt-4 border-t border-border mt-4 space-y-4">
+                                                    <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">SEO Advanced</label>
+                                                    <input value={formData.seo_title || ""} onChange={(e) => setFormData({ ...formData, seo_title: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs" placeholder="SEO Title override..." />
+                                                    <textarea value={formData.seo_description || ""} onChange={(e) => setFormData({ ...formData, seo_description: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs min-h-[60px]" placeholder="Brief meta description..." />
+                                                    <input value={formData.seo_keywords || ""} onChange={(e) => setFormData({ ...formData, seo_keywords: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs" placeholder="Keywords (comma separated)..." />
+                                                </div>
                                             </div>
-                                        </td>
-                                    </tr>
-                                ))
-                            )}
-                        </tbody>
-                    </table>
-                </div>
+                                        </div>
+                                    </form>
 
-                {isModalOpen && (
-                    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-                        <div className="bg-background w-full max-w-5xl max-h-[90vh] overflow-hidden rounded-3xl shadow-2xl flex flex-col">
-                            <div className="p-6 border-b border-border flex justify-between items-center bg-card">
-                                <div>
-                                    <h2 className="text-xl font-black">{editingPost ? "Edit Article" : "Draft New Content"}</h2>
-                                    <div className="flex items-center gap-2">
-                                        <p className="text-[10px] text-muted-foreground uppercase font-black">Slug: {formData.slug || 'auto-generated'}</p>
-                                        {lastSaved && <span className="text-[10px] text-accent font-black uppercase tracking-tighter">• Autosaved {lastSaved}</span>}
-                                    </div>
-                                </div>
-                                <button onClick={closeModal} className="p-2 hover:bg-muted rounded-full transition-colors"><X size={20} /></button>
-                            </div>
-
-                            <form onSubmit={handleSave} className="flex-1 overflow-y-auto p-8 space-y-8">
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                                    <div className="md:col-span-2 space-y-6">
-                                        <input value={formData.title || ""} onChange={(e) => setFormData({ ...formData, title: e.target.value })} className="w-full text-4xl font-black bg-transparent border-none outline-none placeholder:text-muted-foreground focus:ring-0" placeholder="Title of your story..." required />
-                                        <div className="border border-border rounded-2xl overflow-hidden min-h-[400px] relative">
-                                            {isLoadingContent && <div className="absolute inset-0 z-10 bg-background/50 backdrop-blur-sm flex items-center justify-center font-bold text-muted-foreground"><div className="w-5 h-5 border-2 border-accent border-t-transparent rounded-full animate-spin mr-2" /> Loading full content...</div>}
-                                            <Suspense fallback={<PageLoader />}>
-                                                <ReactQuill value={formData.content || ""} onChange={(val) => setFormData({ ...formData, content: val })} modules={quillModules} className="border-none ql-custom" />
-                                            </Suspense>
+                                    <div className="p-6 border-t border-border bg-card flex justify-between items-center">
+                                        <span className="text-xs text-muted-foreground font-medium italic">Save often to prevent loss.</span>
+                                        <div className="flex gap-3">
+                                            <button onClick={closeModal} className="px-6 py-2 border rounded-xl font-bold text-sm hover:bg-muted transition-colors">Dismiss</button>
+                                            <button 
+                                                type="button"
+                                                onClick={() => handleSave()} 
+                                                disabled={saveMutation.isPending} 
+                                                className="px-8 py-2.5 bg-accent text-white rounded-xl font-bold text-sm hover:opacity-90 shadow-lg shadow-accent/20 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+                                            >
+                                                {saveMutation.isPending ? (
+                                                    <>
+                                                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                                                        <span>Saving...</span>
+                                                    </>
+                                                ) : (
+                                                    <>
+                                                        <Save size={18} />
+                                                        <span>{editingPost ? "Update Story" : formData.status === 'draft' ? "Save Draft" : "Publish Story"}</span>
+                                                    </>
+                                                )}
+                                            </button>
                                         </div>
                                     </div>
-
-                                    <div className="space-y-6 bg-muted/30 p-6 rounded-2xl border border-border h-fit">
-                                        <div>
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Publishing settings</label>
-                                            <select value={formData.status} onChange={(e) => setFormData({ ...formData, status: e.target.value as any })} className="w-full bg-background border border-border rounded-xl p-3 text-sm font-bold appearance-none">
-                                                <option value="published">Published</option>
-                                                <option value="draft">Draft Only</option>
-                                                <option value="scheduled">Scheduled</option>
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Category</label>
-                                            <select value={formData.category} onChange={(e) => setFormData({ ...formData, category: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-sm font-bold">
-                                                {categories.map(c => <option key={c} value={c}>{c}</option>)}
-                                            </select>
-                                        </div>
-                                        <div>
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block mb-2">Cover Image</label>
-                                            <div className="aspect-video bg-background border border-border rounded-xl mb-3 overflow-hidden">
-                                                {imagePreview ? <img src={imagePreview} className="w-full h-full object-cover" /> : <div className="w-full h-full flex items-center justify-center text-muted-foreground italic text-xs">No image</div>}
-                                            </div>
-                                             <input
-                                                type="file"
-                                                accept="image/*"
-                                                onChange={(e) => {
-                                                    if (e.target.files && e.target.files[0]) {
-                                                        const file = e.target.files[0];
-                                                        console.log("IMAGE SELECTED:", file);
-                                                        setImageFile(file);
-                                                        setImagePreview(URL.createObjectURL(file));
-                                                    }
-                                                }}
-                                                className="w-full text-xs"
-                                            />
-                                        </div>
-                                        <div className="flex items-center gap-3 bg-background p-3 rounded-xl border border-border">
-                                            <input type="checkbox" id="featured" checked={formData.featured} onChange={(e) => setFormData({ ...formData, featured: e.target.checked })} />
-                                            <label htmlFor="featured" className="text-xs font-bold">Featured Story</label>
-                                        </div>
-                                        <div className="pt-4 border-t border-border mt-4 space-y-4">
-                                            <label className="text-[10px] font-black uppercase tracking-widest text-muted-foreground block">SEO Advanced</label>
-                                            <input value={formData.seo_title || ""} onChange={(e) => setFormData({ ...formData, seo_title: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs" placeholder="SEO Title override..." />
-                                            <textarea value={formData.seo_description || ""} onChange={(e) => setFormData({ ...formData, seo_description: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs min-h-[60px]" placeholder="Brief meta description..." />
-                                            <input value={formData.seo_keywords || ""} onChange={(e) => setFormData({ ...formData, seo_keywords: e.target.value })} className="w-full bg-background border border-border rounded-xl p-3 text-xs" placeholder="Keywords (comma separated)..." />
-                                        </div>
-                                    </div>
-                                </div>
-                            </form>
-
-                            <div className="p-6 border-t border-border bg-card flex justify-between items-center">
-                                <span className="text-xs text-muted-foreground font-medium italic">Save often to prevent loss.</span>
-                                <div className="flex gap-3">
-                                    <button onClick={closeModal} className="px-6 py-2 border rounded-xl font-bold text-sm">Dismiss</button>
-                                    <button onClick={handleSave} disabled={saveMutation.isPending} className="px-10 py-2 bg-accent text-white rounded-xl font-black text-sm hover:opacity-90 shadow-lg shadow-accent/20 flex items-center gap-2">
-                                        {saveMutation.isPending ? <><div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" /> Saving</> : <><Save size={18} /> Publish Story</>}
-                                    </button>
                                 </div>
                             </div>
-                        </div>
-                    </div>
+                        )}
+                    </>
                 )}
-                </>
-                ) : (
-                    <AdminCertificateTable isLoggedIn={true} />
-                )}
+
+                {/* 2. JOBS SECTION */}
+                {activeTab === "jobs" && <AdminJobsSection />}
+
+                {/* 3. CERTIFICATES SECTION */}
+                {activeTab === "certificates" && <AdminCertificateTable isLoggedIn={true} />}
             </div>
         </Layout>
     );

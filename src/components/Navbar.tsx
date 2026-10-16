@@ -11,7 +11,6 @@ interface NavItem {
 const navItems: NavItem[] = [
   { label: "Home", to: "/", end: true },
   { label: "Jobs", to: "/jobs" },
-  { label: "Internship", to: "/internship" },
   { label: "Certificate", to: "/certificates" },
   { label: "About", to: "/about" },
   { label: "Contact", to: "/contact" },

@@ -1,4 +1,4 @@
-# Uyarcha (উয়ার্চা / உயarcha) - Modern Tech Blog & CMS
+# Uyarcha  Modern Tech Blog & CMS
 
 Uyarcha is a high-performance tech blogging platform and CMS built with Vite, React 18, TypeScript, Tailwind CSS, shadcn/ui, and a Supabase backend.
 

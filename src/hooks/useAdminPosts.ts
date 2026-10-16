@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { getAllAdminPosts, getPostContentForAdmin } from "@/queries/adminPosts";
+import { getAllAdminPosts } from "@/queries/adminPosts";
 import { publishPost, updateExistingPost, deletePost } from "@/mutations/posts";
 import { isOnline } from "@/lib/config";
 import { toast } from "sonner";
@@ -35,63 +35,38 @@ export const useDeletePost = () => {
 export const useSavePost = (editingPost: Partial<Article> | null, closeModal: () => void) => {
     const queryClient = useQueryClient();
     return useMutation({
-        mutationFn: async ({ data, imageFile }: { data: any, imageFile: File | null }) => {
-            if (!isOnline()) throw new Error("Network issue. Try again.");
+        mutationFn: async ({ data, imageFile }: { data: any; imageFile: File | null }) => {
+            if (!isOnline()) {
+                throw new Error("Network offline. Please check your internet connection and try again.");
+            }
             
             const result = editingPost && editingPost.id
-                ? await updateExistingPost(editingPost.id, data, imageFile, true) 
-                : await publishPost(data, imageFile, true);
+                ? await updateExistingPost(editingPost.id, data, imageFile) 
+                : await publishPost(data, imageFile);
             
-            if (!result.success) throw new Error(result.message);
+            if (!result.success) {
+                throw new Error(result.message || "Failed to save post to database.");
+            }
             return result;
         },
-        onMutate: async ({ data, imageFile }) => {
-            await queryClient.cancelQueries({ queryKey: ['admin-posts'] });
-            const previousPosts = queryClient.getQueryData<Partial<Article>[]>(['admin-posts']);
-            
-            const optimisticDate = new Date().toISOString();
-            const optimisticPost: Article = {
-                id: editingPost ? (editingPost.id as string) : `temp-${Date.now()}`,
-                title: data.title || "Untitled",
-                slug: data.slug || `temp-${Date.now()}`,
-                content: data.content || "",
-                excerpt: data.excerpt || "",
-                category: data.category || "General",
-                views: editingPost ? (editingPost.views || 0) : 0,
-                status: data.status || 'draft',
-                featured: data.featured || false,
-                image: imageFile ? URL.createObjectURL(imageFile) : data.image,
-                publish_date: data.publish_date || optimisticDate,
-                created_at: editingPost ? (editingPost.created_at as string) : optimisticDate,
-            };
-
-            queryClient.setQueryData<Partial<Article>[]>(['admin-posts'], old => {
-                if (!old) return [];
-                if (editingPost) {
-                    return old.map(p => p.id === editingPost.id ? { ...p, ...optimisticPost } : p);
-                }
-                return [optimisticPost, ...old];
-            });
-
-            closeModal();
-            return { previousPosts };
-        },
-        onError: (err: any, newPost, context) => {
-            if (context?.previousPosts) {
-                queryClient.setQueryData(['admin-posts'], context.previousPosts);
-            }
-            toast.error("System Error - Rolling back", { description: err.message });
-        },
-        onSettled: () => {
-             // Invalidate to let the DB truth reconcile completely
-             queryClient.invalidateQueries({ queryKey: ['admin-posts'] });
-             queryClient.invalidateQueries({ queryKey: ['published-posts'] });
-             queryClient.invalidateQueries({ queryKey: ['published-posts-infinite'] });
-             queryClient.invalidateQueries({ queryKey: ['featured-posts'] });
-             queryClient.invalidateQueries({ queryKey: ['trending-posts'] });
-        },
         onSuccess: () => {
-             toast.success(editingPost ? "Story updated!" : "Story published!");
+            // Invalidate all post-related queries so dashboard metrics & tables update immediately
+            queryClient.invalidateQueries({ queryKey: ['admin-posts'] });
+            queryClient.invalidateQueries({ queryKey: ['published-posts'] });
+            queryClient.invalidateQueries({ queryKey: ['published-posts-infinite'] });
+            queryClient.invalidateQueries({ queryKey: ['featured-posts'] });
+            queryClient.invalidateQueries({ queryKey: ['trending-posts'] });
+            
+            toast.success(editingPost ? "Story updated successfully!" : "Story published successfully!");
+            // Close the editor modal ONLY after database confirms success
+            closeModal();
+        },
+        onError: (err: any) => {
+            console.error("Save post error:", err);
+            toast.error("Publishing Failed", {
+                description: err.message || "An unexpected error occurred while saving to the database.",
+            });
+            // Modal remains open on error to preserve form inputs
         }
     });
 };

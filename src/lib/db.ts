@@ -67,15 +67,13 @@ data:null
 SLUG
 ====================== */
 
-export const slugify=(text:string)=>{
-
-return text
-.toLowerCase()
-.trim()
-.replace(/\s+/g,"-")
-.replace(/[^\w-]/g,"")
-.replace(/--+/g,"-");
-
+export const slugify = (text: string) => {
+  const clean = (text || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return clean || `post-${Date.now().toString(36)}`;
 };
 
 /* ======================
@@ -220,7 +218,7 @@ error:"Title/content required"
 
 try{
 
-let baseSlug=
+const baseSlug=
 postData.slug ||
 slugify(postData.title);
 
