@@ -12,7 +12,6 @@ import PageLoader from "@/components/PageLoader";
 import ErrorFallback from "@/components/ErrorFallback";
 import { Facebook, Linkedin, Link2, Clock, Eye, Calendar, User } from "lucide-react";
 import { sanitizeArticleContent } from "@/lib/sanitize";
-import AdSenseSlot from "@/components/AdSenseSlot";
 
 const XIcon = ({ className }: { className?: string }) => (
   <svg viewBox="0 0 24 24" fill="currentColor" className={className}>
@@ -157,8 +156,6 @@ const ArticlePage = () => {
                 prose-p:leading-relaxed prose-img:rounded-xl"
               dangerouslySetInnerHTML={{ __html: sanitizeArticleContent(post.content) }}
             />
-
-            <AdSenseSlot format="horizontal" />
 
 
             {post.tags && post.tags.length > 0 && (

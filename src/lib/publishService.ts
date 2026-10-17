@@ -192,15 +192,18 @@ export async function publishPost(
     /* STATUS & PUBLISH DATE */
     const status = postData.status || "published";
     const nowIso = new Date().toISOString();
+    const formattedPublishDate = postData.publish_date instanceof Date
+      ? postData.publish_date.toISOString()
+      : postData.publish_date;
     
     let publishDate: string | null = null;
     if (status === "published") {
-      publishDate = postData.publish_date || nowIso;
+      publishDate = formattedPublishDate || nowIso;
     } else if (status === "scheduled") {
-      publishDate = postData.publish_date || nowIso;
+      publishDate = formattedPublishDate || nowIso;
     } else {
       // draft
-      publishDate = postData.publish_date || null;
+      publishDate = formattedPublishDate || null;
     }
 
     /* TAGS */
@@ -301,14 +304,17 @@ export async function updateExistingPost(
 
     const status = postData.status || "published";
     const nowIso = new Date().toISOString();
+    const formattedPublishDate = postData.publish_date instanceof Date
+      ? postData.publish_date.toISOString()
+      : postData.publish_date;
 
     let publishDate: string | null = null;
     if (status === "published") {
-      publishDate = postData.publish_date || nowIso;
+      publishDate = formattedPublishDate || nowIso;
     } else if (status === "scheduled") {
-      publishDate = postData.publish_date || nowIso;
+      publishDate = formattedPublishDate || nowIso;
     } else {
-      publishDate = postData.publish_date || null;
+      publishDate = formattedPublishDate || null;
     }
 
     const tags = Array.isArray(postData.tags)

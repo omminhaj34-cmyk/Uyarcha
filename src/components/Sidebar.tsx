@@ -3,7 +3,6 @@ import { Link } from "react-router-dom";
 import { categories, allTags, getPublishedPosts, getTrendingPosts } from "@/lib/db";
 
 import { TrendingUp, Eye } from "lucide-react";
-import AdSenseSlot from "./AdSenseSlot";
 
 const Sidebar = () => {
   const { data: recentPosts = [] } = useQuery({
@@ -58,9 +57,6 @@ const Sidebar = () => {
             ))}
         </div>
       </div>
-
-      {/* Sponsored Ad Slot */}
-      <AdSenseSlot format="rectangle" />
 
       {/* Categories */}
       <div className="bg-card rounded-lg border border-border p-5">

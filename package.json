@@ -10,6 +10,7 @@
     "generate-sitemap": "npx tsx scripts/generate-sitemap.ts",
     "prerender": "npx tsx scripts/prerender.ts",
     "preview": "vite preview",
+    "cert:generate": "mkcert -key-file .certs/key.pem -cert-file .certs/cert.pem localhost 127.0.0.1 10.135.66.218 ::1",
     "lint": "eslint .",
     "test": "vitest run"
   },

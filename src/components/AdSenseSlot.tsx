@@ -1,139 +1,18 @@
-import React, { useEffect, useState, useRef } from "react";
-import { useLocation } from "react-router-dom";
-import { getCookieConsent, CONSENT_EVENT } from "@/lib/cookieConsent";
+import React from "react";
 
-interface AdSenseSlotProps {
+export interface AdSenseSlotProps {
   slotId?: string;
   format?: "auto" | "horizontal" | "rectangle" | "vertical";
   className?: string;
   style?: React.CSSProperties;
 }
 
-declare global {
-  interface Window {
-    adsbygoogle?: Array<Record<string, unknown>>;
-  }
-}
-
 /**
- * AdSenseSlot: Google AdSense compliant ad slot container.
- * - Loads the AdSense script ONLY when:
- *   1. User has provided cookie consent.
- *   2. Route is not an excluded path (/admin, /contact, 404).
- *   3. Genuine production Client ID and Slot ID are configured (no dummy placeholders).
- * - Reserves responsive minimum height to prevent Cumulative Layout Shift (CLS).
+ * AdSenseSlot: Disabled ad slot container.
+ * Returns null to eliminate all advertisement spaces from the application.
  */
-export const AdSenseSlot: React.FC<AdSenseSlotProps> = ({
-  slotId,
-  format = "auto",
-  className = "",
-  style = {},
-}) => {
-  const location = useLocation();
-  const [hasConsent, setHasConsent] = useState<boolean>(() => getCookieConsent() === "accepted");
-  const adRef = useRef<HTMLModElement | null>(null);
-  const isPushedRef = useRef(false);
-
-  const clientId = import.meta.env.VITE_ADSENSE_CLIENT_ID;
-
-  // Verify that credentials are real and not dummy placeholders
-  const isConfigured = Boolean(
-    clientId &&
-    clientId.startsWith("ca-pub-") &&
-    !clientId.includes("placeholder") &&
-    slotId &&
-    slotId !== "1234567890" &&
-    !slotId.includes("placeholder")
-  );
-
-  // 1. Exclude restricted and administrative routes
-  const isRestrictedRoute =
-    location.pathname.startsWith("/admin") ||
-    location.pathname === "/contact" ||
-    location.pathname.startsWith("/not-found");
-
-  // 2. Listen for Cookie Consent updates
-  useEffect(() => {
-    const handleConsentChange = (e: Event) => {
-      const customEvent = e as CustomEvent<string>;
-      setHasConsent(customEvent.detail === "accepted");
-    };
-
-    window.addEventListener(CONSENT_EVENT, handleConsentChange);
-    return () => {
-      window.removeEventListener(CONSENT_EVENT, handleConsentChange);
-    };
-  }, []);
-
-  // 3. Conditionally load AdSense script once consent is granted AND valid credentials exist
-  useEffect(() => {
-    if (isRestrictedRoute || !hasConsent || !isConfigured || !clientId) return;
-
-    const scriptId = "google-adsense-script";
-    if (!document.getElementById(scriptId)) {
-      const script = document.createElement("script");
-      script.id = scriptId;
-      script.src = `https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=${encodeURIComponent(clientId)}`;
-      script.async = true;
-      script.crossOrigin = "anonymous";
-      document.head.appendChild(script);
-    }
-  }, [hasConsent, isRestrictedRoute, isConfigured, clientId]);
-
-  // 4. Push AdSense slot when element is mounted and consented
-  useEffect(() => {
-    if (isRestrictedRoute || !hasConsent || !isConfigured || isPushedRef.current) return;
-
-    try {
-      if (adRef.current && (window.adsbygoogle || clientId)) {
-        window.adsbygoogle = window.adsbygoogle || [];
-        window.adsbygoogle.push({});
-        isPushedRef.current = true;
-      }
-    } catch (err) {
-      console.warn("AdSense slot push error:", err);
-    }
-  }, [hasConsent, isRestrictedRoute, isConfigured, clientId]);
-
-  if (isRestrictedRoute) {
-    return null;
-  }
-
-  // Determine CLS reserve minimum heights
-  let minHeightClass = "min-h-[100px]";
-  if (format === "rectangle") minHeightClass = "min-h-[250px] max-w-[336px]";
-  else if (format === "horizontal") minHeightClass = "min-h-[90px]";
-  else if (format === "vertical") minHeightClass = "min-h-[600px] max-w-[300px]";
-
-  return (
-    <div
-      className={`w-full overflow-hidden flex flex-col items-center justify-center my-6 rounded-xl border border-dashed border-border/40 bg-muted/10 p-2 ${minHeightClass} ${className}`}
-      style={style}
-      aria-label="Advertisement Space"
-    >
-      <span className="text-[10px] font-bold uppercase tracking-widest text-muted-foreground/40 mb-1">
-        Advertisement
-      </span>
-
-      {hasConsent && isConfigured ? (
-        <ins
-          ref={adRef}
-          className="adsbygoogle block w-full text-center"
-          style={{ display: "block" }}
-          data-ad-client={clientId}
-          data-ad-slot={slotId}
-          data-ad-format={format}
-          data-full-width-responsive="true"
-        />
-      ) : (
-        <div className="text-xs text-muted-foreground/60 italic py-4 text-center">
-          {!hasConsent
-            ? "Advertisements paused until cookie consent is provided."
-            : "Ad space ready. Configure VITE_ADSENSE_CLIENT_ID and slotId in production."}
-        </div>
-      )}
-    </div>
-  );
+export const AdSenseSlot: React.FC<AdSenseSlotProps> = () => {
+  return null;
 };
 
 export default AdSenseSlot;

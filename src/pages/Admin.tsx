@@ -49,14 +49,14 @@ import AdminJobsSection from "@/components/AdminJobsSection";
 import { sanitizeArticleContent } from "@/lib/sanitize";
 import { postSchema } from "@/lib/validations/post";
 
-const formatDate = (dateValue?: string) => {
+const formatDate = (dateValue?: string | Date) => {
     if (!dateValue) return "—";
     try {
         const d = new Date(dateValue);
-        if (isNaN(d.getTime())) return String(dateValue).split("T")[0];
+        if (isNaN(d.getTime())) return typeof dateValue === "string" ? dateValue.split("T")[0] : "—";
         return d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric" });
     } catch {
-        return String(dateValue).split("T")[0];
+        return typeof dateValue === "string" ? dateValue.split("T")[0] : "—";
     }
 };
 

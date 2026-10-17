@@ -25,3 +25,9 @@ dist-ssr
 *.sw?
 .env
 .env.local
+
+# Local development certificates
+.certs/
+*.pem
+*.key
+*.crt
