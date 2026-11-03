@@ -256,26 +256,39 @@ const ProtectedRoute = ({ children, requiredRole = "admin" }: ProtectedRouteProp
     isMountedRef.current = true;
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, session) => {
+      (event, session) => {
         logAuth("Auth state change event received:", event);
+
         if (!isMountedRef.current) return;
 
         if (event === "SIGNED_OUT" || !session) {
-          // If sign out was caused by access denial, preserve the access_denied state and message
           if (isAccessDeniedRef.current) {
             logAuth("Preserving access_denied state after sign-out event");
             setAuthState("access_denied");
           } else {
             setAuthState("unauthenticated");
           }
-        } else if (
+
+          return;
+        }
+
+        if (
           event === "INITIAL_SESSION" ||
           event === "SIGNED_IN" ||
           event === "TOKEN_REFRESHED" ||
           event === "USER_UPDATED"
         ) {
+          const userId = session.user.id;
           const seq = ++authSeqRef.current;
-          await verifyAccessAndMfa(session.user.id, seq);
+
+          // Run Supabase API calls after the auth callback finishes.
+          window.setTimeout(() => {
+            if (!isMountedRef.current || seq !== authSeqRef.current) {
+              return;
+            }
+
+            void verifyAccessAndMfa(userId, seq);
+          }, 0);
         }
       }
     );
